@@ -6,6 +6,9 @@
 # BASICS #
 ##########
 
+# detect sudo
+if sudo --version >/dev/null 2>&1; then sudo=sudo; else sudo=''; fi
+
 # beam cursor
 printf '\e[6 q'
 
@@ -36,7 +39,7 @@ up() {
 alias c='clear'
 alias e='logout; exit'
 alias md='mkdir'
-alias rf='sudo rm -rf'
+alias rf="$sudo rm -rf"
 alias brc='nano ~/.bashrc; source ~/.bashrc'
 alias rel='[ -f ~/.bashrc ] && source ~/.bashrc; [ -f ~/.profile ] && source ~/.profile'
 
@@ -46,7 +49,7 @@ sz() { du -sh "$1"; }
 cs() { cd "$1" && ls; }
 print() { cat "$1" | fold -sw "$COLUMNS"; }
 pwd() { [ -z "$1" ] && local path='.' || local path="$1"; readlink -f "$path"; }
-own() { [ -z "$1" ] && local path='.' || local path=($@); sudo chown "$USER:$USER" "${path[@]}"; }
+own() { [ -z "$1" ] && local path='.' || local path=($@); $sudo chown "$USER:$USER" "${path[@]}"; }
 
 help() {
   while read -r line; do
@@ -58,7 +61,6 @@ help() {
   done < ~/.bashrc
   echo -e '\n'
 }
-
 
 ############
 # PACKAGES #
@@ -72,9 +74,9 @@ u() {
     return
   fi
   if pacman -V >/dev/null 2>&1; then
-    sudo pacman -Syu
+    $sudo pacman -Syu
   elif apt -v >/dev/null 2>&1; then
-    sudo apt update && sudo apt upgrade
+    $sudo apt update && $sudo apt upgrade
   fi
 }
 
@@ -151,7 +153,7 @@ i() {
     # install
     if [ -n "$packages" ]; then
       echo
-      sudo pacman -Syu "${packages[@]}"
+      $sudo pacman -Syu "${packages[@]}"
       echo
     fi
 
@@ -233,7 +235,7 @@ syncdb() {
   if pacman -V >/dev/null 2>&1; then
 
     # init
-    sudo pacman -Fy
+    $sudo pacman -Fy
     mkdir -p ~/.config ~/.cache
     rm -f ~/.cache/pacman.db.temp
     files=($(find /var/lib/pacman/sync/ -name *.files))
@@ -242,7 +244,7 @@ syncdb() {
     echo -e "\e[1m\e[34m::\e[0m\e[1m Extracting files...\e[0m"
     for file in "${files[@]}"; do
       echo " extracting $file"
-      sudo gzip -cd < "$file" >> ~/.cache/pacman.db.temp
+      $sudo gzip -cd < "$file" >> ~/.cache/pacman.db.temp
     done
 
     # c code execution
@@ -251,11 +253,11 @@ syncdb() {
     ~/.cache/extract.exe | sort > ~/.config/pacman.db
 
     # finishing
-    sudo rm -rf ~/.cache/extract.exe ~/.cache/extract.c ~/.cache/pacman.db.temp
+    $sudo rm -rf ~/.cache/extract.exe ~/.cache/extract.c ~/.cache/pacman.db.temp
     echo -e "\e[1m\e[34m::\e[0m\e[1m Done - ~/.config/pacman.db - $(du -h ~/.config/pacman.db | awk '{print $1}')\e[0m"
 
   else
-    echo "Command available for the pacman package manager only."
+    echo "Command only available for the pacman package manager"
   fi
 
 }
@@ -275,18 +277,18 @@ clean() {
   fi
 
   disk
-  sudo rm -rf /tmp/* /var/cache/ ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful 2>/dev/null
+  $sudo rm -rf /tmp/* /var/cache/ ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful 2>/dev/null
   if pacman -V >/dev/null 2>&1; then
-    sudo mkdir -p /var/cache/pacman/pkg/
-    sudo pacman -Sc --noconfirm >/dev/null
+    $sudo mkdir -p /var/cache/pacman/pkg/
+    $sudo pacman -Sc --noconfirm >/dev/null
     while [[ -n $(pacman -Qdtq) ]]; do
-      sudo pacman -Rcns $(pacman -Qdtq) --noconfirm >/dev/null
+      $sudo pacman -Rcns $(pacman -Qdtq) --noconfirm >/dev/null
     done
   fi
-  if yay -V >/dev/null 2>&1; then sudo yay -Sc --noconfirm >/dev/null; fi
-  if apt -v >/dev/null 2>&1; then sudo apt autoremove >/dev/null 2>&1; fi
-  if journalctl --version >/dev/null 2>&1; then sudo journalctl --vacuum-size=50M >/dev/null 2>&1; fi
-  if flatpak --version >/dev/null 2>&1; then sudo flatpak uninstall --unused >/dev/null; fi
+  if yay -V >/dev/null 2>&1; then $sudo yay -Sc --noconfirm >/dev/null; fi
+  if apt -v >/dev/null 2>&1; then $sudo apt autoremove >/dev/null 2>&1; fi
+  if journalctl --version >/dev/null 2>&1; then $sudo journalctl --vacuum-size=50M >/dev/null 2>&1; fi
+  if flatpak --version >/dev/null 2>&1; then $sudo flatpak uninstall --unused >/dev/null; fi
   disk
 
 }
@@ -351,10 +353,14 @@ clone() {
     return
   fi
 
-  [[ -z "$1" || -z "$2" ]] && echo -e "\n\e[31mERROR : No input\e[0m\n"
-  [ -n "$3" ] && local output="$3"
-  [ -z "$3" ] && local output="$2"
-  git clone "https://github.com/$1/$2" --depth 1 "$output"
+  if [[ "${1:0:4}" = 'http' ]]; then
+    git clone "$1" --depth 1
+  else
+    [[ -z "$1" || -z "$2" ]] && echo -e "\n\e[31mERROR : No input\e[0m\n"
+    [ -n "$3" ] && local output="$3"
+    [ -z "$3" ] && local output="$2"
+    git clone "https://github.com/$1/$2" --depth 1 "$output"
+  fi
 
 }
 
@@ -432,9 +438,12 @@ g() {
          [ "$push" == 'y' ] && git push origin main;;
 
       c) if [ "$flag" = 'true' ]; then
-           read -p 'Author ? ' author
-           read -p "Repo's name ? " repo
-           clone "$author" "$repo"
+           read -p 'Link or Author/Repo ? ' repo
+           if [ "${repo:0:4}" = 'http' ]; then
+             clone "$repo"
+           else
+             clone "${repo%/*}" "${repo#*/}"
+           fi
          else
            read -p 'commit name ? ' commit
            [ -n "$commit" ] && git commit -am "$commit" \
