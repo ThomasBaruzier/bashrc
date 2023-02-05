@@ -67,7 +67,7 @@ alias e='logout; exit'
 alias md='mkdir'
 alias rf="$sudo rm -rf"
 alias brc='nano ~/.bashrc; source ~/.bashrc'
-alias rel='[ -f ~/.bashrc ] && source ~/.bashrc; [ -f ~/.profile ] && source ~/.profile'
+alias rel='[ -f ~/.profile ] && source ~/.profile; [ -f ~/.bashrc ] && source ~/.bashrc'
 
 # perm aliases
 alias reboot="$sudo reboot"
@@ -165,64 +165,65 @@ i() {
       fi
     done
 
-    if [[ -n "$fixedPackages" || -n "$bad" ]]; then
-
-      # print results
-      echo
-      [ -n "$good" ] && echo -e "\e[1m\e[34m::\e[0m\e[1m Found\e[0m\n${good[@]}\n"
-      [ -n "$bad" ] && echo -e "\e[1m\e[34m::\e[0m\e[1m Not found\e[0m\n${bad[@]}\n"
-
-      # print fixable and prompt for action
-      if [ -n "$fixedPackages" ]; then
-        echo -e "\e[1m\e[34m::\e[0m\e[1m Fixable\e[0m"
-        for ((i=0; i < "${#fixedPackages[@]}"; i++)); do
-          echo "${fixedPackages[i]} -> ${fixedNames[i]}"
-        done
-        echo -e "\n\e[34m1.\e[0m Install found + fixable"
-        echo -e "\e[34m2.\e[0m Install found"
-        echo -e "\e[34m3.\e[0m Cancel\n"
-        read -e -p "> Choice (default=1) : " answer
-
-        # build package list
-        case "$answer" in
-          3) echo && return;;
-          2) packages=(${good[@]});;
-          *) packages=(${good[@]} ${fixedNames[@]});;
-        esac
-      fi
-
-    # build package list
-    elif [ -n "$good" ]; then
-      packages=(${good[@]})
-    fi
-
-    # install
-    if [ -n "$packages" ]; then
-      echo
-      $sudo pacman -Syu "${packages[@]}"
-      echo
-    fi
-
   # for apt
   elif apt -v >/dev/null 2>&1; then
 
     # determine packages status
     for package in "$@"; do
-      if apt-file search -q "$package"; then
+      if [[ -n $(apt-cache search --names-only "^$package\$") ]]; then
+        # existing
         good+=("$package")
       else
-        name=$(apt-file search "$package" | awk '{print $1}')
-        if [[ -n "$name" && "$name" != "$package" ]]; then
-          # fixable
-          fixedPackages+=("$package")
-          fixedNames+=("$name")
-        else
+        search=$(/usr/lib/command-not-found "$package" 2>&1)
+        if [[ "$search" =~ 'not found, did you mean:'|'command not found' ]]; then
           # non existing
           bad+=("$package")
+        elif [[ "$search" =~ 'not found, but can be installed with:' ]]; then
+          # fixable
+          fixedPackages+=("$package")
+          fixedNames+=("$(grep -Po 'sudo apt install \K[^ ]+' <<< $search | head -n 1)")
         fi
       fi
     done
 
+  fi
+
+  if [[ -n "$fixedPackages" || -n "$bad" ]]; then
+
+    # print results
+    echo
+    [ -n "$good" ] && echo -e "\e[1m\e[34m::\e[0m\e[1m Found\e[0m\n${good[@]}\n"
+    [ -n "$bad" ] && echo -e "\e[1m\e[34m::\e[0m\e[1m Not found\e[0m\n${bad[@]}\n"
+
+    # print fixable and prompt for action
+    if [ -n "$fixedPackages" ]; then
+      echo -e "\e[1m\e[34m::\e[0m\e[1m Fixable\e[0m"
+      for ((i=0; i < "${#fixedPackages[@]}"; i++)); do
+        echo "${fixedPackages[i]} -> ${fixedNames[i]}"
+      done
+      echo -e "\n\e[34m1.\e[0m Install found + fixable"
+      echo -e "\e[34m2.\e[0m Install found"
+      echo -e "\e[34m3.\e[0m Cancel\n"
+      read -e -p "> Choice (default=1) : " answer
+
+      # build package list
+      case "$answer" in
+        3) echo && return;;
+        2) packages=(${good[@]});;
+        *) packages=(${good[@]} ${fixedNames[@]});;
+      esac
+    fi
+
+  # build package list
+  elif [ -n "$good" ]; then
+    packages=(${good[@]})
+  fi
+
+  # install
+  if [ -n "$packages" ]; then
+    echo
+    $sudo pacman -Sy "${packages[@]}"
+    echo
   fi
 
 }
@@ -544,7 +545,7 @@ g() {
 }
 
 #################
-# File launcher #
+# FILE LAUNCHER #
 #################
 
 run() {
@@ -613,7 +614,7 @@ r() {
 }
 
 ##############
-# Networking #
+# NETWORKING #
 ##############
 
 myip() {
@@ -685,3 +686,38 @@ adb() {
 dapk() { apktool d "$1" "$1"; }
 capk() { apktool b "$1"; }
 sign() { jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore ~/.android/debug.keystore "$1" androiddebugkey -storepass android; }
+
+##########
+# SCREEN #
+##########
+
+scr() {
+
+  # help
+  if [[ "$1" = '-h' || "$1" = '--help' ]]; then
+    echo 'Usage : scr <number>'
+    echo 'Desc : Screen helper'
+    echo 'Default : Display menu'
+    return
+  fi
+
+  local screens=$(screen -ls)
+  readarray -t screens <<< $(grep -Po '[0-9]+\..+(?=\(Detached\))' <<< "$screens" | sed -E 's:([0-9]+)\.:\1 - :g')
+  [ -z "$screens" ] && echo -e "\e[31mERROR : No detached screens found\e[0m" && return
+  if [ -z "$1" ]; then
+    echo -e "\n\e[34mSCREENS :\e[0m"
+    for ((i=1; i < "${#screens[@]}+1"; i++)); do
+      echo "$i - ${screens[i-1]}"
+    done
+    read -p $'\nChoice (default=1) : ' answer
+    [ -z "$answer" ] && answer=1
+  else
+    echo
+    answer="$1"
+  fi
+  local id=$(grep -Po '^[0-9]+' <<< "${screens[answer-1]}")
+  [ -z "$id" ] && echo -e "\e[31mERROR : No screens found\e[0m\n" && return
+  screen -r "$id"
+  echo
+
+}
