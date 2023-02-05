@@ -176,7 +176,11 @@ i() {
         # existing
         good+=("$package")
       else
-        search=$(/usr/lib/command-not-found "$package" 2>&1)
+        if [ "$platform" = 'Android' ]; then
+          search=$("$PREFIX"/libexec/termux/command-not-found "$package" 2>&1)
+        else
+          search=$(/usr/lib/command-not-found "$package" 2>&1)
+        fi
         if [[ "$search" =~ 'not found, did you mean:'|'command not found' ]]; then
           # non existing
           bad+=("$package")
