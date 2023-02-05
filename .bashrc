@@ -6,11 +6,15 @@
 # BASICS #
 ##########
 
-# detect sudo
-if sudo --version >/dev/null 2>&1; then sudo=sudo; else sudo=''; fi
-
 # beam cursor
 printf '\e[6 q'
+
+# fancy PS1
+if [ ${EUID} = 0 ]; then
+  PS1='\e[31m\$\e[01;32m\h\e[0m:\e[01;34m\w\e[0m '
+else
+  PS1='\e[01;32m\$\h\e[0m:\e[01;34m\w\e[0m '
+fi
 
 # path utilis
 alias ..='cd ..'
@@ -34,6 +38,30 @@ up() {
   done
   cd $levels
 }
+
+# detect sudo
+if sudo --version >/dev/null 2>&1; then sudo=sudo; else sudo=''; fi
+
+# recursive wildcard
+shopt -s globstar
+
+# colors
+alias dir="dir --color=auto"
+alias grep="grep --color=auto"
+alias dmesg='dmesg --color'
+export LESS_TERMCAP_mb=$'\E[01;31m' \
+LESS_TERMCAP_md=$'\E[01;38;5;74m' \
+LESS_TERMCAP_me=$'\E[0m' \
+LESS_TERMCAP_se=$'\E[0m' \
+LESS_TERMCAP_so=$'\E[38;5;246m' \
+LESS_TERMCAP_ue=$'\E[0m' \
+LESS_TERMCAP_us=$'\E[04;38;5;146m'
+
+# ls aliases
+ls="ls --color=auto --group-directories-first -t -X"
+alias l="$ls", ls="$ls", sl="$ls"
+alias la='ls -A --color=auto --group-directories-first -t -X'
+alias ll='ls -la --color=auto --group-directories-first -t -X'
 
 # basic aliases
 alias c='clear'
@@ -337,6 +365,17 @@ w() {
   ls
 
 }
+
+###########
+# HISTORY #
+###########
+
+HISTSIZE=100000
+HISTFILESIZE=2000000
+HISTCONTROL=ignoreboth
+#HISTTIMEFORMAT='%F %T '
+shopt -s histappend
+shopt -s cmdhist
 
 #######
 # GIT #
