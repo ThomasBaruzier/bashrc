@@ -180,10 +180,10 @@ i() {
         if [[ "$search" =~ 'not found, did you mean:'|'command not found' ]]; then
           # non existing
           bad+=("$package")
-        elif [[ "$search" =~ 'not found, but can be installed with:' ]]; then
+        elif [[ "$search" =~ 'not found, but can be installed with:'|'Install it by executing:' ]]; then
           # fixable
           fixedPackages+=("$package")
-          fixedNames+=("$(grep -Po 'sudo apt install \K[^ ]+' <<< $search | head -n 1)")
+          fixedNames+=("$(grep -Po '(apt)|(pkg) install \K[^ ]+' <<< $search | head -n 1)")
         fi
       fi
     done
