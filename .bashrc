@@ -11,7 +11,14 @@ printf '\e[6 q'
 
 # get system info
 platform=$(uname -o)
-if sudo --version >/dev/null 2>&1; then sudo=sudo; else sudo=''; fi
+if sudo --version >/dev/null 2>&1; then
+  sudo=sudo
+else
+  sudo=''
+fi
+
+# exports
+export PATH="/home/$USER/.local/bin:$PATH"
 
 # fancy PS1
 if [ "$platform" = 'Android' ]; then
@@ -314,7 +321,7 @@ clean() {
   fi
 
   disk
-  $sudo rm -rf /tmp/* /var/cache/ ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful 2>/dev/null
+  $sudo rm -rf /tmp/* /var/cache/ ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority  2>/dev/null
   if pacman -V >/dev/null 2>&1; then
     $sudo mkdir -p /var/cache/pacman/pkg/
     $sudo pacman -Sc --noconfirm >/dev/null
@@ -602,11 +609,32 @@ r() {
 
 }
 
-#######
-# ADB #
-#######
+###########
+# ANDROID #
+###########
 
-alias packages="adb shell pm list packages | awk  -F : '{print \$2}'"
-alias upackages="adb shell pm list packages -u | awk  -F : '{print \$2}'"
-unins() { adb shell pm uninstall --user 0 "$@"; }
-reins() { adb shell cmd package install-existing "$@"; }
+adb() {
+
+  # help
+  if [[ "$1" = '-h' || "$1" = '--help' ]]; then
+    echo 'Usage : adb [p|packages|u|upackages|i|install|unins|reins|pull|any adb arg]'
+    echo 'Desc : ADB helper'
+    echo 'Note : Use one option at a time'
+    return
+  fi
+
+  case "$1" in
+    p|packages) adb shell pm list packages | awk  -F : '{print \$2}';;
+    u|upackages) adb shell pm list packages -u | awk  -F : '{print \$2}';;
+    i|insall) adb install "${@:2}";;
+    unins) adb shell pm uninstall --user 0 "$@";;
+    reins) adb shell cmd package install-existing "$@";;
+    pull) adb pull $(adb shell pm path "$1" | awk -F : '{print $2}');;
+    *) adb "$@";;
+  esac
+
+}
+
+dapk() { apktool d "$1" "$1"; }
+capk() { apktool b "$1"; }
+sign() { jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore ~/.android/debug.keystore "$1" androiddebugkey -storepass android; }
