@@ -15,16 +15,11 @@ if sudo --version >/dev/null 2>&1; then sudo=sudo; else sudo=''; fi
 
 # fancy PS1
 if [ "$platform" = 'Android' ]; then
-  # termux
-  PS1="\e[0;32m\w\e[0m "
+  PS1="\e[0;32m\w\e[0m " # termux
+elif [ ${EUID} = 0 ]; then
+  PS1='\e[31m\$\e[01;32m\h\e[0m:\e[01;34m\w\e[0m ' # root
 else
-  if [ ${EUID} = 0 ]; then
-    # root
-    PS1='\e[31m\$\e[01;32m\h\e[0m:\e[01;34m\w\e[0m '
-  else
-    # user
-    PS1='\e[01;32m\$\h\e[0m:\e[01;34m\w\e[0m '
-  fi
+  PS1='\e[01;32m\$\h\e[0m:\e[01;34m\w\e[0m ' # user
 fi
 
 # path utilis
@@ -66,6 +61,12 @@ alias md='mkdir'
 alias rf="$sudo rm -rf"
 alias brc='nano ~/.bashrc; source ~/.bashrc'
 alias rel='[ -f ~/.bashrc ] && source ~/.bashrc; [ -f ~/.profile ] && source ~/.profile'
+
+# perm aliases
+alias reboot="$sudo reboot"
+alias shutdown="$sudo shutdown now"
+alias pacman="$sudo pacman"
+alias apt="$sudo apt"
 
 # basic functions
 ca() { bc <<< "scale=3;$*"; }
