@@ -9,11 +9,22 @@
 # beam cursor
 printf '\e[6 q'
 
+# get system info
+platform=$(uname -o)
+if sudo --version >/dev/null 2>&1; then sudo=sudo; else sudo=''; fi
+
 # fancy PS1
-if [ ${EUID} = 0 ]; then
-  PS1='\e[31m\$\e[01;32m\h\e[0m:\e[01;34m\w\e[0m '
+if [ "$platform" = 'Android' ]; then
+  # termux
+  PS1="\e[0;32m\w\e[0m "
 else
-  PS1='\e[01;32m\$\h\e[0m:\e[01;34m\w\e[0m '
+  if [ ${EUID} = 0 ]; then
+    # root
+    PS1='\e[31m\$\e[01;32m\h\e[0m:\e[01;34m\w\e[0m '
+  else
+    # user
+    PS1='\e[01;32m\$\h\e[0m:\e[01;34m\w\e[0m '
+  fi
 fi
 
 # path utilis
@@ -38,9 +49,6 @@ up() {
   done
   cd $levels
 }
-
-# detect sudo
-if sudo --version >/dev/null 2>&1; then sudo=sudo; else sudo=''; fi
 
 # recursive wildcard
 shopt -s globstar
@@ -285,7 +293,7 @@ syncdb() {
     echo -e "\e[1m\e[34m::\e[0m\e[1m Done - ~/.config/pacman.db - $(du -h ~/.config/pacman.db | awk '{print $1}')\e[0m"
 
   else
-    echo -e "\e[31mERROR : Command only available for the pacman package manager\e[0m"
+    echo -e "\e[31mERROR : Not using pacman\e[0m"
   fi
 
 }
@@ -332,7 +340,9 @@ disk() {
   fi
 
   # extract data
-  local info=$(df -h | grep -E '/$')
+  [ "$platform" = 'Android' ] \
+  && local info=$(df -h | grep -E '/dev/fuse') \
+  || local info=$(df -h | grep -E '/$')
   local total=$(awk '{print $2}' <<< "$info")
   local used=$(awk '{print $3}' <<< "$info")
   local avail=$(awk '{print $4}' <<< "$info")
@@ -579,11 +589,14 @@ r() {
   fi
 
   [ -n "$1" ] && last=$(readlink -f "$1")
-  if [[ -n $(cat "$last") ]]; then
+  if [[ -n $(cat "$last" 2>/dev/null) ]]; then
     echo "$last" > ~/.cache/last/script
     run "$last" "$@"
   else
-    echo -e "\e[31mERROR : File is empty or doesn't exist (${last/\/home\/$USER/\~})\e[0m"
+    [ -n "$last" ] && last="($last)"
+    last=${last/\/data\/data\/com\.termux\/files\/home/\~}
+    last=${last/\/home\/$USER/\~}
+    echo -e "\e[31mERROR : File is empty or doesn't exist $last\e[0m"
   fi
 
 }
