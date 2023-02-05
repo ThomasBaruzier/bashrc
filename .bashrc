@@ -285,7 +285,7 @@ syncdb() {
     echo -e "\e[1m\e[34m::\e[0m\e[1m Done - ~/.config/pacman.db - $(du -h ~/.config/pacman.db | awk '{print $1}')\e[0m"
 
   else
-    echo "Command only available for the pacman package manager"
+    echo -e "\e[31mERROR : Command only available for the pacman package manager\e[0m"
   fi
 
 }
@@ -371,11 +371,11 @@ w() {
 ###########
 
 HISTSIZE=100000
-HISTFILESIZE=2000000
+HISTFILESIZE=1000000
 HISTCONTROL=ignoreboth
-#HISTTIMEFORMAT='%F %T '
 shopt -s histappend
 shopt -s cmdhist
+export PROMPT_COMMAND="history -a; history -c; history -r; $PROMPT_COMMAND"
 
 #######
 # GIT #
@@ -395,7 +395,7 @@ clone() {
   if [[ "${1:0:4}" = 'http' ]]; then
     git clone "$1" --depth 1
   else
-    [[ -z "$1" || -z "$2" ]] && echo -e "\n\e[31mERROR : No input\e[0m\n"
+    [[ -z "$1" || -z "$2" ]] && echo -e "\e[31mERROR : No input\e[0m" && return
     [ -n "$3" ] && local output="$3"
     [ -z "$3" ] && local output="$2"
     git clone "https://github.com/$1/$2" --depth 1 "$output"
@@ -572,18 +572,18 @@ r() {
 
   # init
   mkdir -p ~/.cache/last
-  if [ -f "/home/$USER/.cache/last/script" ]; then
+  if [ -f ~/.cache/last/script ]; then
     local last=$(cat ~/.cache/last/script)
   else
     local last
   fi
 
   [ -n "$1" ] && last=$(readlink -f "$1")
-  if [ -f "$last" ]; then
+  if [[ -n $(cat "$last") ]]; then
     echo "$last" > ~/.cache/last/script
     run "$last" "$@"
   else
-    echo "File doesn't exist (${last/\/home\/$USER/\~})"
+    echo -e "\e[31mERROR : File is empty or doesn't exist (${last/\/home\/$USER/\~})\e[0m"
   fi
 
 }
