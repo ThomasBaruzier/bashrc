@@ -144,6 +144,7 @@ i() {
 
   # for pacman
   if pacman -V >/dev/null 2>&1; then
+    local installer=pacman
 
     # determine packages status
     [ -f "$HOME/.config/pacman.db" ] || syncdb
@@ -167,6 +168,7 @@ i() {
 
   # for apt
   elif apt -v >/dev/null 2>&1; then
+    local installer=apt
 
     # determine packages status
     for package in "$@"; do
@@ -222,7 +224,8 @@ i() {
   # install
   if [ -n "$packages" ]; then
     echo
-    $sudo pacman -Sy "${packages[@]}"
+    [ "$installer" = 'pacman' ] && $sudo pacman -Sy "${packages[@]}"
+    [ "$installer" = 'apt' ] && $sudo apt update && $sudo apt install "${packages[@]}"
     echo
   fi
 
@@ -327,7 +330,7 @@ clean() {
   disk
   $sudo rm -rf /tmp/* /var/cache/ ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority  2>/dev/null
   if pacman -V >/dev/null 2>&1; then
-    $sudo mkdir -p /var/cache/pacman/pkg/
+    $sudo mkdir -p /var/cache/pacman/pkg/ /var/cache/apt/archives/partial
     $sudo pacman -Sc --noconfirm >/dev/null
     while [[ -n $(pacman -Qdtq) ]]; do
       $sudo pacman -Rcns $(pacman -Qdtq) --noconfirm >/dev/null
