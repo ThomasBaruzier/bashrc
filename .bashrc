@@ -117,11 +117,13 @@ u() {
     echo 'Desc : Update and upgrade packages'
     return
   fi
+  echo
   if pacman -V >/dev/null 2>&1; then
     $sudo pacman -Syu
   elif apt -v >/dev/null 2>&1; then
     $sudo apt update && $sudo apt upgrade
   fi
+  echo
 }
 
 # install
@@ -138,7 +140,7 @@ i() {
   # init
   unset packages
   local name good bad fixedPackages fixedNames
-  [ -z "$1" ] && echo && u && echo && return
+  [ -z "$1" ] && u && return
 
   # for pacman
   if pacman -V >/dev/null 2>&1; then
@@ -279,6 +281,7 @@ syncdb() {
   if pacman -V >/dev/null 2>&1; then
 
     # init
+    echo
     $sudo pacman -Fy
     mkdir -p ~/.config ~/.cache
     rm -f ~/.cache/pacman.db.temp
@@ -605,6 +608,47 @@ r() {
     last=${last/\/data\/data\/com\.termux\/files\/home/\~}
     last=${last/\/home\/$USER/\~}
     echo -e "\e[31mERROR : File is empty or doesn't exist $last\e[0m"
+  fi
+
+}
+
+##############
+# Networking #
+##############
+
+myip() {
+
+  # help
+  if [[ "$1" = '-h' || "$1" = '--help' ]]; then
+    echo 'Usage : myip'
+    echo 'Desc : Show public and private IP'
+  fi
+
+  if ip route get 8.8.8.8 >/dev/null 2>&1; then
+    echo -n "$(ip -json route get 8.8.8.8 | jq -r '.[].prefsrc') "
+    if ping -c 1 google.com >/dev/null 2>&1; then
+      echo "> $(curl -s ifconfig.me)"
+    fi
+  else
+    echo -e "\e[31mERROR : Not connected to a wifi network\e[0m"
+  fi
+
+}
+
+ports() {
+
+  # help
+  if [[ "$1" = '-h' || "$1" = '--help' ]]; then
+    echo 'Usage : ports'
+    echo 'Desc : Show opened ports'
+  fi
+
+  local entries=$($sudo lsof -i -P -n | grep LISTEN | awk '{print $1"\t\t"$5"\t"$8"\t"$9}')
+  if [ -n "$entries" ]; then
+    echo -e "\e[35mSERVICE\t\tTYPE\tNODE\tIP:PORT\e[0m"
+    echo "$entries"
+  else
+    echo "No opened ports"
   fi
 
 }
