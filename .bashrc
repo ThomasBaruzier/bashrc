@@ -187,7 +187,7 @@ i() {
         elif [[ "$search" =~ 'not found, but can be installed with:'|'Install it by executing:' ]]; then
           # fixable
           fixedPackages+=("$package")
-          fixedNames+=("$(grep -Po '(apt)|(pkg) install \K[^ ]+' <<< $search | head -n 1)")
+          fixedNames+=("$(grep -Po '(apt|pkg) install \K[^ ]+' <<< $search | head -n 1)")
         fi
       fi
     done
