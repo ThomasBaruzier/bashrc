@@ -21,12 +21,12 @@ fi
 export PATH="/home/$USER/.local/bin:$PATH"
 
 # fancy PS1
-if [ "$platform" = 'Android' ]; then
-  PS1="\[\e[0;32m\]\w\[\e[0m\] " # termux
-elif [ ${EUID} = 0 ]; then
-  PS1='\[\e[01;32m\]\h\[\e[0m\]:\[\e[01;34m\]\w\e[0m\] ' # root
-else
-  PS1='\[\e[01;32m\]\h\[\e[0m\]:\[\e[01;34m\]\w\e[0m\] ' # user
+if [ "$platform" = 'Android' ]; then # termux
+  PS1="\[\e[0;32m\]\w\[\e[0m\] "
+elif [ "${EUID}" = 0 ]; then # root
+  PS1="\[\033[01;31m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[31m\]\" || echo \"\[\033[00m\]\"):\[\033[01;34m\]\w\[\033[00m\] "
+else # user
+  PS1="\[\033[01;32m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[31m\]\" || echo \"\[\033[00m\]\"):\[\033[01;34m\]\w\[\033[00m\] "
 fi
 
 # path utilis
@@ -613,7 +613,7 @@ r() {
 # ANDROID #
 ###########
 
-android() {
+adb() {
 
   # help
   if [[ "$1" = '-h' || "$1" = '--help' ]]; then
@@ -624,13 +624,16 @@ android() {
   fi
 
   case "$1" in
-    p|packages) adb shell pm list packages | awk  -F : '{print $2}';;
-    u|upackages) adb shell pm list packages -u | awk  -F : '{print $2}';;
-    i|insall) adb install "${@:2}";;
-    unins) adb shell pm uninstall --user 0 "$@";;
-    reins) adb shell cmd package install-existing "$@";;
-    pull) adb pull $(adb shell pm path "$1" | awk -F : '{print $2}');;
-    *) eval adb "$@";;
+    p|packages)
+      packages=$(adb shell pm list packages | awk  -F : '{print $2}')
+      [ -n "$2" ] && echo "$packages" | grep "$2" --color=never || echo "$packages";;
+    u|upackages) packages=$(sort <(adb shell pm list packages) <(adb shell pm list packages -u) | uniq -u | awk  -F : '{print $2}')
+      [ -n "$2" ] && echo "$packages" | grep "$2" --color=never || echo "$packages";;
+    i|install) adb install "${@:2}";;
+    unins) adb shell pm uninstall --user 0 "${@:2}";;
+    reins) adb shell cmd package install-existing "${@:2}";;
+    pull) adb pull $(adb shell pm path "$2" | awk -F : '{print $2}');;
+    *) eval "/usr/bin/adb $@";;
   esac
 
 }
