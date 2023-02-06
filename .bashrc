@@ -21,11 +21,15 @@ fi
 export PATH="/home/$USER/.local/bin:$PATH"
 
 # fancy PS1
-if [ "$platform" = 'Android' ]; then # termux
-  PS1="\[\e[0;32m\]\w\[\e[0m\] "
-elif [ "${EUID}" = 0 ]; then # root
+if [[ -z "$SSH_CLIENT" ]]; then
+  if [ "${EUID}" = 0 ]; then # local root
+    PS1="\$([[ \$? != 0 ]] && echo \"\[\033[35m\]\" || echo \"\[\033[31m\]\")\w\[\033[00m\] "
+  else # local user
+    PS1="\$([[ \$? != 0 ]] && echo \"\[\033[35m\]\" || echo \"\[\033[32m\]\")\w\[\033[00m\] "
+  fi
+elif [ "${EUID}" = 0 ]; then # ssh root
   PS1="\[\033[01;31m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[31m\]\" || echo \"\[\033[00m\]\"):\[\033[01;34m\]\w\[\033[00m\] "
-else # user
+else # ssh user
   PS1="\[\033[01;32m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[31m\]\" || echo \"\[\033[00m\]\"):\[\033[01;34m\]\w\[\033[00m\] "
 fi
 
