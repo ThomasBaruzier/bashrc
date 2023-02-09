@@ -110,6 +110,10 @@ LESS_TERMCAP_so=$'\E[38;5;246m' \
 LESS_TERMCAP_ue=$'\E[0m' \
 LESS_TERMCAP_us=$'\E[04;38;5;146m'
 
+# load other configs
+[ -f '~/.profile' ] && source '~/.profile'
+[ -f '~/.addons' ] && source '~/.addons'
+
 ############
 # PACKAGES #
 ############
