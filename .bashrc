@@ -17,9 +17,6 @@ else
   sudo=''
 fi
 
-# exports
-export PATH="/home/$USER/.local/bin:$PATH"
-
 # fancy PS1
 if [[ -z "$SSH_CLIENT" ]]; then
   if [ "${EUID}" = 0 ]; then # local root
@@ -40,24 +37,6 @@ alias ....='cd ../../..'
 alias .....='cd ../../../..'
 alias ......='cd ../../../../..'
 alias .......='cd ../../../../../..'
-
-up() {
-  if [[ "$1" = '-h' || "$1" = '--help' ]]; then
-    echo 'Usage : up <number>'
-    echo 'Desc : Go up n directories'
-    return
-  fi
-  local num_levels="$1"
-  [[ -z "$num_levels" ]] && num_levels=1
-  local levels=""
-  for ((i=0; i < num_levels; i++)); do
-    levels="../$levels"
-  done
-  cd $levels
-}
-
-# recursive wildcard
-shopt -s globstar
 
 # ls aliases
 ls="ls --color=auto --group-directories-first -t -X"
@@ -110,8 +89,10 @@ LESS_TERMCAP_so=$'\E[38;5;246m' \
 LESS_TERMCAP_ue=$'\E[0m' \
 LESS_TERMCAP_us=$'\E[04;38;5;146m'
 
-# load other configs
-[ -f ~/.profile ] && source ~/.profile
+# path and configs
+[ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH"
+[ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH"
+[ -f ~/.profile ] && grep -q '.bashrc' ~/.profile || source ~/.profile
 [ -f ~/.addons ] && source ~/.addons
 
 ############
