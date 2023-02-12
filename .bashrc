@@ -96,7 +96,7 @@ LESS_TERMCAP_us=$'\E[04;38;5;146m'
 [ -f ~/.addons ] && source ~/.addons
 
 # update bashrc
-alias ubrc='curl https://raw.githubusercontent.com/ThomasBaruzier/bashrc/main/.bashrc > ~/.bashrc && echo Updated!'
+alias ubrc='curl -s https://raw.githubusercontent.com/ThomasBaruzier/bashrc/main/.bashrc > ~/.bashrc && echo Updated!'
 
 ############
 # PACKAGES #
