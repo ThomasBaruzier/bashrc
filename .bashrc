@@ -92,7 +92,7 @@ LESS_TERMCAP_us=$'\E[04;38;5;146m'
 # path and configs
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH"
 [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH"
-[ -f ~/.profile ] && grep -q '.bashrc' ~/.profile || source ~/.profile
+[[ -f ~/.profile && -z $(grep '.bashrc' ~/.profile) ]] && source ~/.profile
 [ -f ~/.addons ] && source ~/.addons
 
 # update bashrc
