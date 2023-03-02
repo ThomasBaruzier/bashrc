@@ -236,7 +236,7 @@ read -r -d '' code << "EOF"
 int main() {
 
   // variables
-  FILE *file = fopen("/home/tyra/.cache/pacman.db.temp", "r");
+  FILE *file = fopen("$HOME/.cache/pacman.db.temp", "r");
   char line[1024*512];
   regex_t regex;
   int reti;
@@ -295,7 +295,7 @@ syncdb() {
     done
 
     # c code execution
-    echo "$code" > ~/.cache/extract.c
+    echo "$code" | sed "s:\$HOME:$HOME:g" > ~/.cache/extract.c
     gcc ~/.cache/extract.c -o ~/.cache/extract.exe
     ~/.cache/extract.exe | sort > ~/.config/pacman.db
 
