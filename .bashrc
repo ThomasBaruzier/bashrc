@@ -329,10 +329,11 @@ clean() {
 
   disk
   mkdir ~/.cache-bkp
+  [ -d ~/.cache/torch ] && mv ~/.cache/torch ~/.cache-bkp
   [ -d ~/.cache/miopen ] && mv ~/.cache/miopen ~/.cache-bkp
   [ -d ~/.cache/huggingface ] && mv ~/.cache/huggingface ~/.cache-bkp
   $sudo rm -rf /tmp/* /var/cache/ ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority  2>/dev/null
-  mv ~/.cache-bkp/* ~/.cache/
+  $sudo mv ~/.cache-bkp/* ~/.cache/
   $sudo rm -rf ~/.cache-bkp
   if pacman -V >/dev/null 2>&1; then
     $sudo mkdir -p /var/cache/pacman/pkg/ /var/cache/apt/archives/partial
@@ -567,10 +568,14 @@ run() {
   cd "$dir"
 
   # detect ext based on header
-  [ $(head -c 3 "$path") = '#!/' ] && local header=$(head -n 1 "$path")
-  [ "$header" = '#!/bin/bash' ] && ext='sh'
-  [ "$header" = '#!/bin/sh' ] && ext='sh'
-  [ "$header" = '#!/bin/python' ] && ext='py'
+  fileinfo=$(file "$path")
+  if [[ "$fileinfo" = *'shell script'* ]]; then
+    ext='sh'
+  elif [[ "$fileinfo" = *'python script'* ]]; then
+    ext='py'
+  elif [[ "$fileinfo" == *'executable'* ]]; then
+    ext='exe'
+  fi
 
   # launcher
   case "$ext" in
@@ -583,7 +588,7 @@ run() {
     jar) java -jar "$path" "${@:3}";;
     tar.gz) (($(du -m "$path" | cut -f -1) > 10)) \
             && pv "$path" | tar x || tar xf "$path";;
-    7z|bz2|bzip2|tbz2|tbz|gz|gzip|tgz|tar|wim|swm|esd|xz|txz|zip|zipx|jar|xpi|odt|ods|docx|xlsx|epub|apm|ar|a|deb|lib|arj|cab|chm|chw|chi|chq|msi|msp|doc|xls|ppt|cpio|cramfs|dmg|ext|ext2|ext3|ext4|img|fat|img|hfs|hfsx|hxs|hxi|hxr|hxq|hxw|lit|ihex|iso|img|lzma|mbr|mslz|mub|nsis|ntfs|img|mbr|rar|r00|ppmd|qcow|qcow2|qcow2c|001|002|squashfs|udf|iso|img|scap|uefif|vdi|vhd|vmdk|xar|pkg|z|taz)
+    7z|bz2|bzip2|tbz2|tbz|gz|gzip|tgz|tar|wim|swm|esd|xz|txz|zip|zipx|dmg|img|fat|img|hfs|iso|lzma|mbr|ntfs|rar|qcow|qcow2|qcow2c|001|002|squashfs|udf|scap|uefif|vdi|vhd|vmdk|xar|pkg|z|taz)
       7z x "$path";;
     *) echo -e "\e[31mERROR : File type isn't supported\e[0m";;
   esac
@@ -609,7 +614,7 @@ r() {
   fi
 
   [ -n "$1" ] && last=$(readlink -f "$1")
-  if [[ -n $(cat "$last" 2>/dev/null) ]]; then
+  if [ -s "$last" ]; then
     echo "$last" > ~/.cache/last/script
     run "$last" "$@"
   else
