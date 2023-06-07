@@ -9,7 +9,7 @@
 # beam cursor
 printf '\e[6 q'
 
-# get system info
+# system info
 platform=$(uname -o)
 if sudo --version >/dev/null 2>&1; then
   sudo=sudo
@@ -50,13 +50,17 @@ alias e='logout; exit'
 alias md='mkdir'
 alias rf="$sudo rm -rf"
 alias brc='nano ~/.bashrc; source ~/.bashrc'
+alias dh='sudo du -bhsc .[^.]* * 2>/dev/null | sort -h'
 alias rel='[ -f ~/.profile ] && source ~/.profile; [ -f ~/.bashrc ] && source ~/.bashrc'
 
-# perm aliases
+# auto sudo
 alias reboot="$sudo reboot"
 alias shutdown="$sudo shutdown now"
 alias pacman="$sudo pacman"
 alias apt="$sudo apt"
+alias mount="$sudo mount"
+alias umount="$sudo umount"
+alias docker="$sudo docker"
 
 # basic functions
 ca() { bc <<< "scale=3;$*"; }
@@ -236,7 +240,7 @@ read -r -d '' code << "EOF"
 int main() {
 
   // variables
-  FILE *file = fopen("$HOME/.cache/pacman.db.temp", "r");
+  FILE *file = fopen("/home/tyra/.cache/pacman.db.temp", "r");
   char line[1024*512];
   regex_t regex;
   int reti;
@@ -295,7 +299,7 @@ syncdb() {
     done
 
     # c code execution
-    echo "$code" | sed "s:\$HOME:$HOME:g" > ~/.cache/extract.c
+    echo "$code" > ~/.cache/extract.c
     gcc ~/.cache/extract.c -o ~/.cache/extract.exe
     ~/.cache/extract.exe | sort > ~/.config/pacman.db
 
@@ -324,7 +328,12 @@ clean() {
   fi
 
   disk
+  mkdir ~/.cache-bkp
+  [ -d ~/.cache/miopen ] && mv ~/.cache/miopen ~/.cache-bkp
+  [ -d ~/.cache/huggingface ] && mv ~/.cache/huggingface ~/.cache-bkp
   $sudo rm -rf /tmp/* /var/cache/ ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority  2>/dev/null
+  mv ~/.cache-bkp/* ~/.cache/
+  $sudo rm -rf ~/.cache-bkp
   if pacman -V >/dev/null 2>&1; then
     $sudo mkdir -p /var/cache/pacman/pkg/ /var/cache/apt/archives/partial
     $sudo pacman -Sc --noconfirm >/dev/null
@@ -657,7 +666,8 @@ ports() {
 # ANDROID #
 ###########
 
-adb() {
+# broken
+aadb() {
 
   # help
   if [[ "$1" = '-h' || "$1" = '--help' ]]; then
@@ -719,4 +729,37 @@ scr() {
   screen -r "$id"
   echo
 
+}
+
+##############
+# Torrenting #
+##############
+
+addtrackers() {
+    local magnet_link="$1"
+    local trackers=(
+        "udp://tracker.opentrackr.org:1337/announce"
+        "udp://opentracker.i2p.rocks:6969/announce"
+        "https://opentracker.i2p.rocks:443/announce"
+        "udp://tracker.openbittorrent.com:6969/announce"
+        "http://tracker.openbittorrent.com:80/announce"
+        "udp://9.rarbg.com:2810/announce"
+        "udp://open.demonii.com:1337/announce"
+        "udp://exodus.desync.com:6969/announce"
+        "udp://open.stealth.si:80/announce"
+        "udp://tracker.torrent.eu.org:451/announce"
+        "udp://tracker.moeking.me:6969/announce"
+        "udp://tracker.bitsearch.to:1337/announce"
+        "udp://tracker1.bt.moack.co.kr:80/announce"
+        "udp://tracker.tiny-vps.com:6969/announce"
+        "udp://tracker.theoks.net:6969/announce"
+        "udp://p4p.arenabg.com:1337/announce"
+        "udp://movies.zsw.ca:6969/announce"
+        "udp://explodie.org:6969/announce"
+        "https://tracker.tamersunion.org:443/announce"
+        "https://tracker.moeblog.cn:443/announce"
+    )
+    local new_trackers=$(echo "${trackers[*]}" | tr ' ' ',')
+    local new_magnet_link="${magnet_link}&tr=${new_trackers}"
+    echo "$new_magnet_link"
 }
