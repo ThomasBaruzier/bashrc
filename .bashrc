@@ -571,9 +571,9 @@ run() {
   fileinfo=$(file "$path")
   if [[ "$fileinfo" = *'shell script'* ]]; then
     ext='sh'
-  elif [[ "$fileinfo" = *'python script'* ]]; then
+  elif [[ "$fileinfo" = *'python script'* || "$fileinfo" = *'Python script'* ]]; then
     ext='py'
-  elif [[ "$fileinfo" == *'executable'* ]]; then
+  elif [[ "$fileinfo" = *'executable'* ]]; then
     ext='exe'
   fi
 
