@@ -6,6 +6,9 @@
 # BASICS #
 ##########
 
+# if not running interactively, don't do anything
+[ -z "$PS1" ] && return
+
 # beam cursor
 printf '\e[6 q'
 
