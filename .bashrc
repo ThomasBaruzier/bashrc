@@ -6,9 +6,6 @@
 # BASICS #
 ##########
 
-# if not running interactively, don't do anything
-[ -z "$PS1" ] && return
-
 # beam cursor
 printf '\e[6 q'
 
@@ -770,4 +767,19 @@ addtrackers() {
     local new_trackers=$(echo "${trackers[*]}" | tr ' ' ',')
     local new_magnet_link="${magnet_link}&tr=${new_trackers}"
     echo "$new_magnet_link"
+}
+
+streaminfo() {
+  ffprobe -show_entries stream=index,codec_type:stream_tags=language -of compact "$1" 2>&1 | {
+    while read line; do
+      if echo "$line" | grep -q -i "stream #"; then
+        echo "$line"
+      fi
+    done
+    while read -d $'\x0D' line; do
+      if echo "$line" | grep -q "time="; then
+        echo "$line" | awk '{ printf "%s\r", $8 }'
+      fi
+    done
+  }
 }
