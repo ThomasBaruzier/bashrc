@@ -346,7 +346,8 @@ clean() {
   [ -d ~/.cache/torch ] && mv ~/.cache/torch ~/.cache-bkp
   [ -d ~/.cache/miopen ] && mv ~/.cache/miopen ~/.cache-bkp
   [ -d ~/.cache/huggingface ] && mv ~/.cache/huggingface ~/.cache-bkp
-  $sudo rm -rf /tmp/* /var/log/* /var/cache/* ~/.cache/* /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
+  [ -n "$SSH_CLIENT" ] || $sudo rm -rf /var/log/*
+  $sudo rm -rf /tmp/* /var/cache/* ~/.cache/* /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
   $sudo mv ~/.cache-bkp/* ~/.cache/ 2>/dev/null
   $sudo rm -rf ~/.cache-bkp
   if pacman -V >/dev/null 2>&1; then
