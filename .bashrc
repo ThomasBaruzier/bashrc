@@ -11,10 +11,11 @@ printf '\e[6 q'
 
 # system info
 platform=$(uname -o)
-if sudo --version >/dev/null 2>&1; then
+
+if [ -x /bin/sudo ] && groups | grep -qE "\b(sudo|wheel)\b"; then
   sudo=sudo
 else
-  sudo=''
+  unset sudo
 fi
 
 # fancy PS1
@@ -328,22 +329,25 @@ clean() {
   fi
 
   disk
-  mkdir ~/.cache-bkp
+  mkdir -p ~/.cache-bkp
   [ -d ~/.cache/torch ] && mv ~/.cache/torch ~/.cache-bkp
   [ -d ~/.cache/miopen ] && mv ~/.cache/miopen ~/.cache-bkp
   [ -d ~/.cache/huggingface ] && mv ~/.cache/huggingface ~/.cache-bkp
-  $sudo rm -rf /tmp/* /var/cache/ ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority  2>/dev/null
-  $sudo mv ~/.cache-bkp/* ~/.cache/
+  $sudo rm -rf /tmp/* /var/cache/ ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority /var/lib/systemd/coredump/* 2>/dev/null
+  $sudo mv ~/.cache-bkp/* ~/.cache/ 2>/dev/null
   $sudo rm -rf ~/.cache-bkp
   if pacman -V >/dev/null 2>&1; then
-    $sudo mkdir -p /var/cache/pacman/pkg/ /var/cache/apt/archives/partial
-    $sudo pacman -Sc --noconfirm >/dev/null
+    $sudo mkdir -p /var/cache/pacman/pkg/
+    $sudo pacman -Sc --noconfirm  >/dev/null
     while [[ -n $(pacman -Qdtq) ]]; do
       $sudo pacman -Rcns $(pacman -Qdtq) --noconfirm >/dev/null
     done
   fi
   if yay -V >/dev/null 2>&1; then $sudo yay -Sc --noconfirm >/dev/null; fi
-  if apt -v >/dev/null 2>&1; then $sudo apt autoremove >/dev/null 2>&1; fi
+  if apt -v >/dev/null 2>&1; then
+    $sudo apt autoremove >/dev/null 2>&1
+    $sudo mkdir -p /var/cache/apt/archives/partial
+  fi
   if journalctl --version >/dev/null 2>&1; then $sudo journalctl --vacuum-size=50M >/dev/null 2>&1; fi
   if flatpak --version >/dev/null 2>&1; then $sudo flatpak uninstall --unused >/dev/null; fi
   disk
