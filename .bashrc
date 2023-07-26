@@ -345,8 +345,8 @@ clean() {
   fi
   if yay -V >/dev/null 2>&1; then $sudo yay -Sc --noconfirm >/dev/null; fi
   if apt -v >/dev/null 2>&1; then
-    $sudo apt autoremove >/dev/null 2>&1
     $sudo mkdir -p /var/cache/apt/archives/partial
+    $sudo apt autoremove >/dev/null 2>&1
   fi
   if journalctl --version >/dev/null 2>&1; then $sudo journalctl --vacuum-size=50M >/dev/null 2>&1; fi
   if flatpak --version >/dev/null 2>&1; then $sudo flatpak uninstall --unused >/dev/null; fi
