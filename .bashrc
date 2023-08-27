@@ -123,8 +123,9 @@ alias dmesg='dmesg --color'
 [ -f ~/.profile ] && [ -z $(grep '.bashrc' ~/.profile) ] && source ~/.profile
 [ -f ~/.addons ] && source ~/.addons
 
-# update bashrc
+# update bashrc or nanorc
 alias ubrc='curl -s https://raw.githubusercontent.com/ThomasBaruzier/bashrc/main/.bashrc > ~/.bashrc && echo Updated!'
+alias unrc='curl -s https://raw.githubusercontent.com/ThomasBaruzier/bashrc/main/.nanorc > ~/.nanorc && echo Updated!'
 
 ############
 # PACKAGES #
@@ -639,9 +640,9 @@ g() {
       echo '[d] - delete commit'
       echo -e '\e[34m'
       echo '[p] - push'
-      echo '[f] - push -f'
-      echo '[P] - pull'
-      echo '[F] - pull -f'
+      echo '[P] - push -f'
+      echo '[l] - pull'
+      echo '[L] - pull -f'
       echo -e '\e[33m'
       echo '[b] - edit branch'
       echo '[o] - checkout'
@@ -696,9 +697,9 @@ g() {
          || git commit -m 'update';;
 
       p) git push origin main;;
-      f) git push origin main -f;;
-      P) git pull origin main;;
-      F) read -p 'rebase ? ' choice
+      P) git push origin main -f;;
+      l) git pull origin main;;
+      L) read -p 'rebase ? ' choice
          [ "$choice" = 'y' ] \
          && git commit -am 'before rebase' \
          && git pull origin main --rebase;;
