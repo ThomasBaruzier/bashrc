@@ -359,15 +359,15 @@ own() {
 w() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : w [files|all]'
+    echo 'Usage : w [<custom>|all]'
     echo 'Desc : Make files executable'
-    echo 'Defaults : *.sh, *.py'
+    echo "Default custom value : '*.sh *.exe'"
     return
   fi
 
   # make executable
   if [ -z "$1" ]; then
-    chmod +x *.sh *.py 2>/dev/null
+    chmod +x *.sh *.exe 2>/dev/null
   elif [ "$1" = 'all' ]; then
     chmod +x * 2>/dev/null
   else
@@ -502,14 +502,25 @@ check_deps grep sed tar nano bc jq curl gzip gcc/build-essential/base-devel git 
 # HISTORY #
 ###########
 
-HISTSIZE=2000 # save 1,000 lines of history in memory
+HISTSIZE=1000 # save 1,000 lines of history in memory
 HISTFILESIZE=1000000 # save 1,000,000 lines of history to disk
-HISTCONTROL=ignoredups,erasedups # ignore redundant and remove duplicates
-HISTIGNORE='?:??:pwd:exit:clear:history:reboot:shutdown' # ignore useless commanfds
 HISTTIMEFORMAT='[%F %T] ' # set time format
-shopt -s histappend # append to history instead of overwrite
 shopt -s cmdhist # multiple commands on one line show up as a single line
-export PROMPT_COMMAND="history -a; $PROMPT_COMMAND" # append new history lines
+
+#HISTCONTROL=ignoredups,erasedups # ignore redundant and remove duplicates
+#shopt -s histappend # append to history instead of overwrite
+
+#IGNORE="?:??:???:????:clear:history*:reboot:shutdown"
+#trim_history() {
+#  local hist_file="$HOME/.bash_history"
+#  local temp_file="$HOME/.cache/trimmed_history"
+#
+#  mkdir -p ~/.cache
+#  awk -F '\t' -v IGNORE="$IGNORE" '$3 !~ IGNORE' "$hist_file" > "$temp_file"
+#  awk '{$1=++c} 1' "$temp_file" > "$hist_file"
+#  rm -f "$temp_file"
+#}
+#trap trim_history EXIT
 
 #######
 # GIT #
