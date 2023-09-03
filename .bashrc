@@ -408,7 +408,7 @@ clean() {
   [ -d ~/.cache/torch ] && mv ~/.cache/torch ~/.cache-bkp
   [ -d ~/.cache/huggingface ] && mv ~/.cache/huggingface ~/.cache-bkp
 
-  if [ -n "$SSH_CLIENT" ]; then # ssh, server assumed
+  if [ -z "$SSH_CLIENT" ]; then # ssh, server assumed
     $sudo rm -rf /tmp/* /var/cache/* ~/.cache/* /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
   elif [ "$platform" = Android ]; then # android, forbid sudo and system paths
     rm -rf ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
@@ -827,7 +827,9 @@ myip() {
   private_ips="${private_ips:: -1}"
   private_ips="${private_ips// / - }"
   echo -e "PRIVATE: \e[34m$private_ips\e[0m"
-  public_ip=$(curl -s --max-time 5 ip.3z.ee || echo 'Request failed')
+
+  public_ip=$(curl -s --max-time 5 ip.3z.ee)
+  grep -qE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' <<< "$public_ip" || public_ip='Request Failed'
   echo -e "PUBLIC:  \e[34m$public_ip\e[0m"
 }
 
