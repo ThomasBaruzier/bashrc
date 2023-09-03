@@ -116,11 +116,11 @@ alias dir="dir --color=auto"
 alias grep="grep --color=auto"
 alias dmesg='dmesg --color'
 
-# path and configs
+## path and configs
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH"
 [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH"
 [ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH"
-[ -f ~/.profile ] && [ -z $(grep '.bashrc' ~/.profile) ] && source ~/.profile
+[ -f ~/.profile ] && [ -z "$(grep '.bashrc' ~/.profile)" ] && source ~/.profile
 [ -f ~/.addons ] && source ~/.addons
 
 # update bashrc or nanorc
@@ -470,6 +470,8 @@ check_deps() {
       warn "The system does not have dpkg or pacman intalled, proceeding without dependency checks."
       return
     fi
+  else
+    return
   fi
 
   if [ -n "$packages" ] && [ -z "$PACKAGES" ]; then
@@ -496,7 +498,7 @@ check_deps() {
   fi
 }
 
-check_deps grep sed tar nano bc jq curl gzip gcc/build-essential/base-devel git file pv p7zip lsof screen
+check_deps grep sed tar nano bc jq curl gzip gcc/build-essential/base-devel git file pv p7zip lsof screen net-tools
 
 ###########
 # HISTORY #
@@ -818,7 +820,7 @@ myip() {
   local private_ips=$(
     ifconfig 2>/dev/null | \
     grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | \
-    grep -ve '^255\.' -e '127.0.0.1' -e '192\.168\..*\.255' | \
+    grep -ve '^255\.' -e '\.255$' -e '127.0.0.1' -e '^192\.168' | \
     sort -u | tr '\n' ' '
   )
 
