@@ -888,6 +888,17 @@ ports() {
   fi
 }
 
+furl() {
+  # help
+  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
+    echo 'Usage : furl <url>'
+    echo 'Desc : Find the last redirect of a url'
+  fi
+
+  echo
+  wget -S --spider "$1" 2>&1 | sed -En 's/^--[[:digit:]: -]{19}--  https?:\/\/(.*)/> \1\n/p'
+}
+
 ###########
 # ANDROID #
 ###########
