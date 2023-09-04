@@ -125,26 +125,31 @@ alias dmesg='dmesg --color'
 
 # update/push bashrc
 ubrc() {
+  echo
   mkdir -p ~/.cache
   rm -rf ~/.cache/bashrc
-  git -C ~/.cache clone --depth 1 "https://github.com/thomasbaruzier/bashrc"
+  clone thomasbaruzier bashrc ~/.cache/bashrc
+
   if [ -s ~/.cache/bashrc/.bashrc ]; then
     mv ~/.cache/bashrc/.bashrc ~/.bashrc
-    success "Bashrc updated successfully! Please restart your shell or type 'rel' to apply the changes."
+    success "~/.bashrc has been updated!"
   else
     error 'Failed to download the update'
   fi
+
   rm -rf ~/.cache/bashrc
+  echo
 }
 
 pbrc() {
+  echo
   read -p 'Commit name: ' commit
   [ -z "$commit" ] && commit='update'
+  echo
 
   mkdir -p ~/.cache
   rm -rf ~/.cache/bashrc
   clone thomasbaruzier bashrc ~/.cache/bashrc
-#  git -C ~/.cache clone --depth 1 "https://github.com/thomasbaruzier/bashrc.git"
   cp ~/.bashrc ~/.cache/bashrc/.bashrc
   git -C ~/.cache/bashrc add .bashrc
   git -C ~/.cache/bashrc commit -m "$commit"
@@ -155,7 +160,9 @@ pbrc() {
   else
     error 'Failed to push ~/.bashrc'
   fi
+
   rm -rf ~/.cache/bashrc
+  echo
 }
 
 ############
