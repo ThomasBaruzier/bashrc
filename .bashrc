@@ -116,16 +116,43 @@ alias dir="dir --color=auto"
 alias grep="grep --color=auto"
 alias dmesg='dmesg --color'
 
-## path and configs
+# path and configs
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH"
 [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH"
 [ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH"
 [ -f ~/.profile ] && [ -z "$(grep '.bashrc' ~/.profile)" ] && source ~/.profile
 [ -f ~/.addons ] && source ~/.addons
 
-# update bashrc or nanorc
-alias ubrc='curl -s https://raw.githubusercontent.com/ThomasBaruzier/bashrc/main/.bashrc > ~/.bashrc && echo Updated!'
-alias unrc='curl -s https://raw.githubusercontent.com/ThomasBaruzier/bashrc/main/.nanorc > ~/.nanorc && echo Updated!'
+# update/push bashrc
+ubrc() {
+  mkdir -p ~/.cache
+  rm -rf ~/.cache/bashrc
+  git -C ~/.cache clone --depth 1 "https://github.com/thomasbaruzier/bashrc"
+  if [ -s ~/.cache/bashrc/.bashrc ]; then
+    mv ~/.cache/bashrc/.bashrc ~/.bashrc
+    success "Bashrc updated successfully! Please restart your shell or type 'rel' to apply the changes."
+  else
+    error 'Failed to download the update'
+  fi
+  rm -rf ~/.cache/bashrc
+}
+
+pbrc() {
+  mkdir -p ~/.cache
+  rm -rf ~/.cache/bashrc
+  git -C ~/.cache clone --depth 1 "https://github.com/thomasbaruzier/bashrc"
+  cp ~/.bashrc ~/.cache/bashrc/.bashrc
+  git -C ~/.cache/bashrc add .bashrc
+  git -C ~/.cache/bashrc commit -m 'update'
+  git -C ~/.cache/bashrc push
+
+  if [ "$?" != 0 ]; then
+    success '~/.bashrc has been pushed!'
+  else
+    error 'Failed to push ~/.bashrc'
+  fi
+  rm -rf ~/.cache/bashrc
+}
 
 ############
 # PACKAGES #
@@ -408,7 +435,7 @@ clean() {
   [ -d ~/.cache/torch ] && mv ~/.cache/torch ~/.cache-bkp
   [ -d ~/.cache/huggingface ] && mv ~/.cache/huggingface ~/.cache-bkp
 
-  if [ -z "$SSH_CLIENT" ]; then # ssh, server assumed
+  if [ -n "$SSH_CLIENT" ]; then # ssh, server assumed
     $sudo rm -rf /tmp/* /var/cache/* ~/.cache/* /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
   elif [ "$platform" = Android ]; then # android, forbid sudo and system paths
     rm -rf ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
@@ -896,11 +923,11 @@ s() {
 
   local screens=$(screen -ls)
   readarray -t screens <<< $(grep -Po '[0-9]+\..+(?=\(Detached\))' <<< "$screens" | sed -E 's:([0-9]+)\.:\1 - :g')
-  [ -z "$screens" ] && error 'No detached screens found'
+  [ -z "$screens" ] && error 'No detached screens found' && return 1
   if [ -z "$1" ]; then
     echo -e "\n\e[34mSCREENS :\e[0m"
     for ((i=1; i < "${#screens[@]}+1"; i++)); do
-      echo "$i - ${screens[i-1]}"
+      echo "$i - ${screens[i-1]//\\/\/}"
     done
     read -p $'\nChoice (default=1) : ' answer
     [ -z "$answer" ] && answer=1
