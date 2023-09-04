@@ -138,12 +138,16 @@ ubrc() {
 }
 
 pbrc() {
+  read -p 'Commit name: ' commit
+  [ -z "$commit" ] && commit='update'
+
   mkdir -p ~/.cache
   rm -rf ~/.cache/bashrc
-  git -C ~/.cache clone --depth 1 "https://github.com/thomasbaruzier/bashrc.git"
+  clone thomasbaruzier bashrc ~/.cache/bashrc
+#  git -C ~/.cache clone --depth 1 "https://github.com/thomasbaruzier/bashrc.git"
   cp ~/.bashrc ~/.cache/bashrc/.bashrc
   git -C ~/.cache/bashrc add .bashrc
-  git -C ~/.cache/bashrc commit -m 'update'
+  git -C ~/.cache/bashrc commit -m "$commit"
   git -C ~/.cache/bashrc push
 
   if [ "$?" = 0 ]; then
