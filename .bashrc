@@ -140,15 +140,13 @@ ubrc() {
 pbrc() {
   mkdir -p ~/.cache
   rm -rf ~/.cache/bashrc
-  git -C ~/.cache clone --depth 1 "https://github.com/thomasbaruzier/bashrc"
+  git -C ~/.cache clone --depth 1 "https://github.com/thomasbaruzier/bashrc.git"
   cp ~/.bashrc ~/.cache/bashrc/.bashrc
   git -C ~/.cache/bashrc add .bashrc
   git -C ~/.cache/bashrc commit -m 'update'
   git -C ~/.cache/bashrc push
 
-  echo "$?"
-
-  if [ "$?" != 0 ]; then
+  if [ "$?" = 0 ]; then
     success '~/.bashrc has been pushed!'
   else
     error 'Failed to push ~/.bashrc'
@@ -571,7 +569,7 @@ clone() {
   if [ "${1:0:8}" = 'https://' ] || [ "${1:0:7}" = 'http://' ]; then
     local url="$1"
   elif [ -n "$2" ]; then
-    local url="https://github.com/$1/$2"
+    local url="https://github.com/$1/$2.git"
     shift
   else
     error 'Synthax error. Use clone --help for more information'
