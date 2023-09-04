@@ -146,6 +146,8 @@ pbrc() {
   git -C ~/.cache/bashrc commit -m 'update'
   git -C ~/.cache/bashrc push
 
+  echo "$?"
+
   if [ "$?" != 0 ]; then
     success '~/.bashrc has been pushed!'
   else
