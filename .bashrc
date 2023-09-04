@@ -143,6 +143,7 @@ ubrc() {
 
 pbrc() {
   echo
+  local commit
   read -p 'Commit name: ' commit
   [ -z "$commit" ] && commit='update'
   echo
@@ -600,8 +601,8 @@ clone() {
 
   # Parse CLI arguments
   while [[ "$#" -gt 0 ]]; do
-    key="$1"
-    arg="$2"
+    local key="$1"
+    local arg="$2"
     case "$1" in
       -d|--depth) depth="$arg"; shift; shift;;
       -b|--branch) local branch="$arg"; shift; shift;;
