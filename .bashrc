@@ -859,7 +859,7 @@ myip() {
   local private_ips=$(
     ifconfig 2>/dev/null | \
     grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | \
-    grep -ve '^255\.' -e '\.255$' -e '127.0.0.1' -e '^192\.168' | \
+    grep -ve '^255\.' -e '\.255$' -e '127.0.0.1' | \
     sort -u | tr '\n' ' '
   )
 
