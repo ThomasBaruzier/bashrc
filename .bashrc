@@ -597,6 +597,7 @@ clone() {
   fi
 
   local name="${path##*/}"
+  local name="${path%.git}"
   local depth=1
 
   # Parse CLI arguments
