@@ -593,11 +593,10 @@ clone() {
     local path="$1"
     shift
   else
-    local path="${url##*/}"
+    local path="${url##*/}"; path="${path%.git}"
   fi
 
   local name="${path##*/}"
-  local name="${path%.git}"
   local depth=1
 
   # Parse CLI arguments
