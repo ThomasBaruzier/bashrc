@@ -746,7 +746,7 @@ g() {
       C) read -p 'commit name ? ' commit
          git add *
          [ -n "$commit" ] && git commit -m "$commit" \
-         || git commit -m 'update';;
+         || git commit -m '[~] Update.';;
 
       p) git push origin main;;
       P) git push origin main -f;;
