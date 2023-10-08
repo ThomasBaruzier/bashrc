@@ -741,7 +741,7 @@ g() {
          else
            read -p 'commit name ? ' commit
            [ -n "$commit" ] && git commit -am "$commit" \
-           || git commit -am 'update'
+           || git commit -am '[~] Update.'
          fi;;
       C) read -p 'commit name ? ' commit
          git add *
