@@ -727,7 +727,7 @@ g() {
          [ -n "$gitignore" ] && echo -e "${gitignore// /\\n}" > .gitignore
          read -p "files to add : " toAdd
          [ -n "$toAdd" ] && git add "$toAdd"
-         git commit -m 'initial commit'
+         git commit -m '[+] Initial commit.'
          read -p "push ? " push
          [ "$push" == 'y' ] && git push origin main;;
 
