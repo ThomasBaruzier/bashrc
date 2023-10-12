@@ -727,7 +727,7 @@ g() {
          [ -n "$gitignore" ] && echo -e "${gitignore// /\\n}" > .gitignore
          read -p "files to add : " toAdd
          [ -n "$toAdd" ] && git add "$toAdd"
-         git commit -m 'initial commit'
+         git commit -m '[+] Initial commit.'
          read -p "push ? " push
          [ "$push" == 'y' ] && git push origin main;;
 
@@ -741,12 +741,12 @@ g() {
          else
            read -p 'commit name ? ' commit
            [ -n "$commit" ] && git commit -am "$commit" \
-           || git commit -am 'update'
+           || git commit -am '[~] Update.'
          fi;;
       C) read -p 'commit name ? ' commit
          git add *
          [ -n "$commit" ] && git commit -m "$commit" \
-         || git commit -m 'update';;
+         || git commit -m '[~] Update.';;
 
       p) git push origin main;;
       P) git push origin main -f;;
