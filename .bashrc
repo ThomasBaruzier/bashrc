@@ -584,7 +584,6 @@ clone() {
   if [ "${1:0:8}" = 'https://' ] || [ "${1:0:7}" = 'http://' ]; then
     local url="$1"
   elif [ -n "$2" ]; then
-
     local url="https://github.com/$1/$2.git"
     shift
   else
@@ -745,7 +744,7 @@ g() {
          else
            read -p 'commit name ? ' commit
            [ -n "$commit" ] && git commit -am "$commit" \
-           || git commit -am 'update'
+           || git commit -am '[~] Update'
          fi;;
       C) read -p 'commit name ? ' commit
          git add *
