@@ -49,6 +49,8 @@ alias ....='cd ../../..'
 alias .....='cd ../../../..'
 alias ......='cd ../../../../..'
 alias .......='cd ../../../../../..'
+alias ........='cd ../../../../../../..'
+alias .........='cd ../../../../../../../..'
 
 # ls aliases
 ls="ls --color=auto --group-directories-first -t -X"
@@ -114,6 +116,7 @@ LESS_TERMCAP_ue=$'\E[0m' \
 LESS_TERMCAP_us=$'\E[04;38;5;146m'
 alias dir="dir --color=auto"
 alias grep="grep --color=auto"
+alias tree="tree -C"
 alias dmesg='dmesg --color'
 
 # path and configs
@@ -581,6 +584,7 @@ clone() {
   if [ "${1:0:8}" = 'https://' ] || [ "${1:0:7}" = 'http://' ]; then
     local url="$1"
   elif [ -n "$2" ]; then
+
     local url="https://github.com/$1/$2.git"
     shift
   else
@@ -727,7 +731,7 @@ g() {
          [ -n "$gitignore" ] && echo -e "${gitignore// /\\n}" > .gitignore
          read -p "files to add : " toAdd
          [ -n "$toAdd" ] && git add "$toAdd"
-         git commit -m '[+] Initial commit.'
+         git commit -m '[+] Initial commit'
          read -p "push ? " push
          [ "$push" == 'y' ] && git push origin main;;
 
@@ -741,12 +745,12 @@ g() {
          else
            read -p 'commit name ? ' commit
            [ -n "$commit" ] && git commit -am "$commit" \
-           || git commit -am '[~] Update.'
+           || git commit -am 'update'
          fi;;
       C) read -p 'commit name ? ' commit
          git add *
          [ -n "$commit" ] && git commit -m "$commit" \
-         || git commit -m '[~] Update.';;
+         || git commit -m '[~] Update';;
 
       p) git push origin main;;
       P) git push origin main -f;;
