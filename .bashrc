@@ -123,7 +123,7 @@ alias dmesg='dmesg --color'
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH"
 [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH"
 [ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH"
-[ -f ~/.profile ] && [ -z "$(grep '.bashrc' ~/.profile)" ] && source ~/.profile
+[ -f ~/.profile ] && [ -z "$(grep '\.bashrc' ~/.profile)" ] && source ~/.profile
 [ -f ~/.addons ] && source ~/.addons
 
 # update/push bashrc
