@@ -882,7 +882,7 @@ ports() {
     echo 'Desc : Show opened ports'
   fi
 
-  local entries=$($sudo lsof -i -P -n | grep LISTEN | awk '{print $1"\t\t"$5"\t"$8"\t"$9}' 2>/dev/null)
+  local entries=$($sudo lsof -i -P -n | grep LISTEN | awk '{print $1"\t\t"$5"\t"$8"\t"$9}' 2>/dev/null | sort -u)
   if [ -n "$entries" ]; then
     echo -e "\e[35mSERVICE\t\tTYPE\tNODE\tIP:PORT\e[0m"
     echo "$entries"
