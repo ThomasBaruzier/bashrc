@@ -884,8 +884,10 @@ ports() {
 
   local entries=$($sudo lsof -i -P -n | grep LISTEN | awk '{print $1"\t\t"$5"\t"$8"\t"$9}' 2>/dev/null | sort -u)
   if [ -n "$entries" ]; then
-    echo -e "\e[35mSERVICE\t\tTYPE\tNODE\tIP:PORT\e[0m"
-    echo "$entries"
+    printf "\e[35m%-20s %-6s %-6s %-15s\e[0m\n" "SERVICE" "TYPE" "NODE" "IP:PORT"
+    echo "$entries" | while read -r service type node address; do
+      printf "%-20s %-6s %-6s %-15s\n" "$service" "$type" "$node" "$address"
+    done
   else
     echo "No opened ports"
   fi
