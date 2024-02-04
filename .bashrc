@@ -448,7 +448,9 @@ clean() {
   disk
   mkdir -p ~/.cache-bkp
   [ -d ~/.cache/torch ] && mv ~/.cache/torch ~/.cache-bkp
+  [ -d ~/.cache/torch_extensions ] && mv ~/.cache/torch_extensions ~/.cache-bkp
   [ -d ~/.cache/huggingface ] && mv ~/.cache/huggingface ~/.cache-bkp
+  [ -d ~/.cache/jellyfin ] && mv ~/.cache/jellyfin ~/.cache-bkp
 
   if [ -n "$SSH_CLIENT" ]; then # ssh, server assumed
     $sudo rm -rf /tmp/* /var/cache/* ~/.cache/* /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
