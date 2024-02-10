@@ -1039,8 +1039,9 @@ burnsubs() {
   echo
   ffmpeg -loglevel warning -hide_banner -stats \
     -i "$input" -i "$sub_file" -c:v copy -c:a copy \
-    -c:s "$sub_codec" -sub_charenc UTF-8 \
+    -c:s "$sub_codec" \
     -metadata:s:s:0 language="$sub_lang" "$output"
+  #-sub_charenc UTF-8
 
   if [ "$?" = 0 ]; then
     echo -e "\e[34mSubtitles successfully burnt! (Saved at: $output)\e[0m"
