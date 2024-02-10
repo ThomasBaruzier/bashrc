@@ -972,34 +972,13 @@ s() {
 }
 
 ##############
-# Torrenting #
+# TORRENTING #
 ##############
 
 addtrackers() {
   local magnet_link="$1"
-  local trackers=(
-    "udp://tracker.opentrackr.org:1337/announce"
-    "udp://opentracker.i2p.rocks:6969/announce"
-    "https://opentracker.i2p.rocks:443/announce"
-    "udp://tracker.openbittorrent.com:6969/announce"
-    "http://tracker.openbittorrent.com:80/announce"
-    "udp://9.rarbg.com:2810/announce"
-    "udp://open.demonii.com:1337/announce"
-    "udp://exodus.desync.com:6969/announce"
-    "udp://open.stealth.si:80/announce"
-    "udp://tracker.torrent.eu.org:451/announce"
-    "udp://tracker.moeking.me:6969/announce"
-    "udp://tracker.bitsearch.to:1337/announce"
-    "udp://tracker1.bt.moack.co.kr:80/announce"
-    "udp://tracker.tiny-vps.com:6969/announce"
-    "udp://tracker.theoks.net:6969/announce"
-    "udp://p4p.arenabg.com:1337/announce"
-    "udp://movies.zsw.ca:6969/announce"
-    "udp://explodie.org:6969/announce"
-    "https://tracker.tamersunion.org:443/announce"
-    "https://tracker.moeblog.cn:443/announce"
-  )
-  local new_trackers=$(echo "${trackers[*]}" | tr ' ' ',')
+  local trackers=$(curl -s 'https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt')
+  local new_trackers=$(sed -z 's:\n\n:\&tr=:g' <<< "${trackers%*}")
   local new_magnet_link="${magnet_link}&tr=${new_trackers}"
   echo "$new_magnet_link"
 }
@@ -1017,4 +996,109 @@ streaminfo() {
       fi
     done
   }
+}
+
+burnsubs() {
+  output='.'
+  sub_lang='en'
+
+  usage=$'\nUsage: burnsubs -i <input> -s <sub> -o <output> [-l <lang>]\n'
+  usage+=$'  -i, --input      Input video file\n'
+  usage+=$'  -s, --sub        Subtitle file to burn\n'
+  usage+=$'  -o, --output     Output video file path\n'
+  usage+=$'  -l, --language   Subtitle language (default: en)\n'
+  usage+=$'  -h, --help       Display this help and exit\n'
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -i|--input) input="$2"; shift 2;;
+      -s|--sub) sub_file="$2"; shift 2;;
+      -o|--output) output="$2"; shift 2;;
+      -l|--language) sub_lang="$2"; shift 2;;
+      -h|--help) echo "$usage"; return 1;;
+      *) echo "Invalid argument: $1"; echo "$usage"; return 1;;
+    esac
+  done
+
+  if [ -z "$input" ] || [ -z "$output" ] ||
+    [ -z "$sub_file" ] || [ -z "$sub_lang" ]; then
+    echo
+    error 'Missing required arguments.'
+    echo "$usage"
+    return 1
+  fi
+
+  if [ -d "$output" ]; then
+    new_title=$(basename "$input" | sed -e 's/\.[^.]*$//')
+    output="$output/$new_title.${input##*.}"
+  fi
+
+  [ "$sub_lang" = 'en' ] && sub_lang=eng
+  [ "${input##*.}" = "mkv" ] && sub_codec='srt' || sub_codec='mov_text'
+
+  echo
+  ffmpeg -loglevel warning -hide_banner -stats \
+    -i "$input" -i "$sub_file" -c:v copy -c:a copy \
+    -c:s "$sub_codec" -sub_charenc UTF-8 \
+    -metadata:s:s:0 language="$sub_lang" "$output"
+
+  if [ "$?" = 0 ]; then
+    echo -e "\e[34mSubtitles successfully burnt! (Saved at: $output)\e[0m"
+  else
+    echo -e "\e[31mError burning subtitles into the video! ($input)\e[0m"
+    return 1
+  fi
+}
+
+#############
+# AI CODING #
+#############
+
+file2prompt() {
+  readarray -t files <<< $(find "$@" -type f -not -path '*/.*')
+  readarray -t files <<< $(file --mime-type "${files[@]}" | grep ' text/' | cut -d: -f1 | sort)
+
+  [ -z "${files}" ] && echo "Nothing to do" && return
+  unset prompt
+
+  for path in "${files[@]}"; do
+    local file=$(cat "$path")
+    [ "${path:0:2}" = './' ] && path="${path:2}"
+    #while [[ "${file:0:1}" = ' ' || "${file:0:1}" = $'\n' ]]; do
+    #  file="${file:1}"
+    #done
+    while [[ "${file::-1}" = ' ' || "${file::-1}" = $'\n' ]]; do
+      file="${file:0:-1}"
+    done
+    ext="${path: -5}"
+    [ -n "${ext//[^.]}" ] && ext="${path##*.}" || unset ext
+    prompt+=$'\n`'"${path}"$'`:\n```'"${ext}"$'\n'"${file}"$'\n```\n'
+  done
+
+  echo "$prompt"
+}
+
+prompt2file() {
+  unset code inCode filename
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^\[(.+)\]$ && -z "$inCode" ]]; then
+      filename="${BASH_REMATCH[1]}"
+      continue
+    fi
+
+    [ -z "$filename" ] && continue
+    if [ "$line" = '```' ]; then
+      [ -z "$inCode" ] && inCode=true && continue
+      echo "Writing $filename..."
+      if [ -f "$filename" ]; then
+        read -p "Overwrite '$filename'? (default=n)" answer
+        [ "$answer" != y ] && unset filename code inCode && continue
+      fi
+      echo "$code" > "$filename"
+      unset filename code inCode
+    else
+      code+=$'\n'"$line"
+    fi
+
+  done < "$1"
 }
