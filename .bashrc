@@ -67,8 +67,8 @@ alias brc='nano ~/.bashrc; source ~/.bashrc'
 alias rel='[ -f ~/.profile ] && source ~/.profile; [ -f ~/.bashrc ] && source ~/.bashrc'
 
 # auto sudo
-alias reboot="$sudo reboot"
-alias shutdown="$sudo shutdown now"
+alias reboot="$sudo reboot && exit"
+alias shutdown="$sudo shutdown now && exit"
 alias pacman="$sudo pacman"
 alias apt="$sudo apt"
 alias mount="$sudo mount"
