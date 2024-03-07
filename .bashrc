@@ -60,6 +60,7 @@ alias l="$ls"; alias ls="$ls"; alias sl="$ls"
 
 # basic aliases
 alias c='clear'
+alias n='nano'
 alias md='mkdir'
 alias rf="$sudo rm -rf"
 alias rd="$sudo rm -d"
@@ -71,6 +72,7 @@ alias reboot="$sudo reboot && exit"
 alias shutdown="$sudo shutdown now && exit"
 alias pacman="$sudo pacman"
 alias apt="$sudo apt"
+alias dnf="$sudo dnf"
 alias mount="$sudo mount"
 alias umount="$sudo umount"
 alias docker="$sudo docker"
@@ -81,6 +83,8 @@ alias groupadd="$sudo groupadd"
 alias groupdel="$sudo groupdel"
 alias visudo="$sudo EDITOR=nano visudo"
 alias passwd="$sudo passwd"
+alias arch-chroot="$sudo arch-chroot"
+alias gparted="$sudo gparted"
 
 # status functions
 error() { echo -e "\033[31mERROR: $@\033[0m"; }
@@ -113,7 +117,8 @@ LESS_TERMCAP_me=$'\E[0m' \
 LESS_TERMCAP_se=$'\E[0m' \
 LESS_TERMCAP_so=$'\E[38;5;246m' \
 LESS_TERMCAP_ue=$'\E[0m' \
-LESS_TERMCAP_us=$'\E[04;38;5;146m'
+LESS_TERMCAP_us=$'\E[04;38;5;146m' \
+GTK_THEME='Adwaita:dark'
 alias dir="dir --color=auto"
 alias grep="grep --color=auto"
 alias tree="tree -C"
@@ -1051,9 +1056,21 @@ burnsubs() {
   fi
 }
 
-#############
-# AI CODING #
-#############
+##########
+# CODING #
+##########
+
+snm() {
+  [ -n "$1" ] && bins=("$@") || bins=($(find -maxdepth 1 -executable -type f))
+  [ -z "$bins" ] && error 'No binary found' && return 1
+  for bin in "${bins[@]}"; do
+    mapfile -t libs <<< $(nm "$bin" | grep -Po " U \K[^@]+" --color=never)
+    echo -e "\n\e[34m$bin (${#libs[@]})\e[0m"
+    [ -n "$libs" ] && \
+    printf '%s\n' "${libs[@]}" || echo 'No libraries found'
+  done
+  echo
+}
 
 file2prompt() {
   readarray -t files <<< $(find "$@" -type f -not -path '*/.*')
