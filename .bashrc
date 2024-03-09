@@ -553,25 +553,21 @@ check_deps grep sed tar nano bc jq curl gzip gcc/build-essential/base-devel git 
 # HISTORY #
 ###########
 
-HISTSIZE=1000 # save 1,000 lines of history in memory
-HISTFILESIZE=1000000 # save 1,000,000 lines of history to disk
-HISTTIMEFORMAT='[%F %T] ' # set time format
-shopt -s cmdhist # multiple commands on one line show up as a single line
+HISTSIZE=1000000 # in memory
+HISTFILESIZE=1000000 # in disk
+HISTCONTROL=ignoredups # ignore redundant and remove duplicates
+HISTIGNORE="?:??:???:clear:clean:history:reboot:shutdown"
+unset HISTTIMEFORMAT # no time format
+shopt -s cmdhist # no command separation
+shopt -s histappend # append to history instead of overwrite
+export PROMPT_COMMAND="history -a; $PROMPT_COMMAND"
 
-#HISTCONTROL=ignoredups,erasedups # ignore redundant and remove duplicates
-#shopt -s histappend # append to history instead of overwrite
-
-#IGNORE="?:??:???:????:clear:history*:reboot:shutdown"
-#trim_history() {
-#  local hist_file="$HOME/.bash_history"
-#  local temp_file="$HOME/.cache/trimmed_history"
-#
-#  mkdir -p ~/.cache
-#  awk -F '\t' -v IGNORE="$IGNORE" '$3 !~ IGNORE' "$hist_file" > "$temp_file"
-#  awk '{$1=++c} 1' "$temp_file" > "$hist_file"
-#  rm -f "$temp_file"
-#}
-#trap trim_history EXIT
+trap trim_history EXIT
+trim_history() {
+  history -a
+  local unique_lines=$(tac ~/.bash_history | awk '!seen[$0]++' | tac)
+  echo "$unique_lines" > ~/.bash_history
+}
 
 #######
 # GIT #
