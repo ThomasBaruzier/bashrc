@@ -553,7 +553,7 @@ check_deps grep sed tar nano bc jq curl gzip gcc/build-essential/base-devel git 
 # HISTORY #
 ###########
 
-HISTSIZE=1000000 # in memory
+HISTSIZE=100000 # in memory
 HISTFILESIZE=1000000 # in disk
 HISTCONTROL=ignoredups # ignore redundant and remove duplicates
 HISTIGNORE="?:??:???:clear:clean:history:reboot:shutdown"
