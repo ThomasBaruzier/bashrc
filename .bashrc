@@ -556,13 +556,13 @@ check_deps grep sed tar nano bc jq curl gzip gcc/build-essential/base-devel git 
 HISTSIZE=100000 # in memory
 HISTFILESIZE=1000000 # in disk
 HISTCONTROL=ignoredups # ignore redundant and remove duplicates
-HISTIGNORE="?:??:???:clear:clean:history:reboot:shutdown"
+HISTIGNORE="reboot*:shutdown*"
 unset HISTTIMEFORMAT # no time format
 shopt -s cmdhist # no command separation
 shopt -s histappend # append to history instead of overwrite
 export PROMPT_COMMAND="history -a; $PROMPT_COMMAND"
 
-trap trim_history EXIT
+#trap trim_history EXIT
 trim_history() {
   history -a
   local unique_lines=$(tac ~/.bash_history | awk '!seen[$0]++' | tac)
