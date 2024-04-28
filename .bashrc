@@ -1001,12 +1001,14 @@ streaminfo() {
 burnsubs() {
   output='.'
   sub_lang='en'
+  sub_name='AI Generated'
 
-  usage=$'\nUsage: burnsubs -i <input> -s <sub> -o <output> [-l <lang>]\n'
+  usage=$'\nUsage: burnsubs -i <input> -s <sub> -o <output> [-l <lang>] [-n <name>]\n'
   usage+=$'  -i, --input      Input video file\n'
   usage+=$'  -s, --sub        Subtitle file to burn\n'
   usage+=$'  -o, --output     Output video file path\n'
   usage+=$'  -l, --language   Subtitle language (default: en)\n'
+  usage+=$'  -n, --name       Subtitle name (default: AI Generated)\n'
   usage+=$'  -h, --help       Display this help and exit\n'
 
   while [ "$#" -gt 0 ]; do
@@ -1015,13 +1017,14 @@ burnsubs() {
       -s|--sub) sub_file="$2"; shift 2;;
       -o|--output) output="$2"; shift 2;;
       -l|--language) sub_lang="$2"; shift 2;;
+      -n|--name) sub_name="$2"; shift 2;;
       -h|--help) echo "$usage"; return 1;;
       *) echo "Invalid argument: $1"; echo "$usage"; return 1;;
     esac
   done
 
-  if [ -z "$input" ] || [ -z "$output" ] ||
-    [ -z "$sub_file" ] || [ -z "$sub_lang" ]; then
+  if [ -z "$input" ] || [ -z "$output" ] || [ -z "$sub_file" ] ||
+    [ -z "$sub_lang" ] || [ -z "$sub_name" ]; then
     echo
     error 'Missing required arguments.'
     echo "$usage"
@@ -1038,10 +1041,14 @@ burnsubs() {
 
   echo
   ffmpeg -loglevel warning -hide_banner -stats \
-    -i "$input" -i "$sub_file" -c:v copy -c:a copy \
-    -c:s "$sub_codec" \
-    -metadata:s:s:0 language="$sub_lang" "$output"
-  #-sub_charenc UTF-8
+    -i "$input" -i "$sub_file" \
+    -map 0:v -map 0:a -map 0:s? -map 1:s -map 0:t? \
+    -c:v copy -c:a copy -c:s copy \
+    -metadata:s:s:0 language="$sub_lang" \
+    -metadata:s:s:0 handler_name="$sub_name" \
+    "$output"
+
+#    -c:s:s:0 "$sub_codec"
 
   if [ "$?" = 0 ]; then
     echo -e "\e[34mSubtitles successfully burnt! (Saved at: $output)\e[0m"
