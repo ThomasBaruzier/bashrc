@@ -1000,15 +1000,17 @@ streaminfo() {
 
 burnsubs() {
   output='.'
+  replace_subs=false
   sub_lang='en'
-  sub_name='AI Generated'
+  sub_name="$USER's subtitles"
 
-  usage=$'\nUsage: burnsubs -i <input> -s <sub> -o <output> [-l <lang>] [-n <name>]\n'
+  usage=$'\nUsage: burnsubs -i <input> -s <sub> -o <output> [-l <lang>] [-n <name>] [-r]\n'
   usage+=$'  -i, --input      Input video file\n'
   usage+=$'  -s, --sub        Subtitle file to burn\n'
   usage+=$'  -o, --output     Output video file path\n'
-  usage+=$'  -l, --language   Subtitle language (default: en)\n'
-  usage+=$'  -n, --name       Subtitle name (default: AI Generated)\n'
+  usage+="  -l, --language   Subtitle language (default: $sub_lang)"$'\n'
+  usage+="  -n, --name       Subtitle name (default: $sub_name)"$'\n'
+  usage+=$'  -r, --replace    Replace all existing subtitles with the new one\n'
   usage+=$'  -h, --help       Display this help and exit\n'
 
   while [ "$#" -gt 0 ]; do
@@ -1018,13 +1020,13 @@ burnsubs() {
       -o|--output) output="$2"; shift 2;;
       -l|--language) sub_lang="$2"; shift 2;;
       -n|--name) sub_name="$2"; shift 2;;
+      -r|--replace) replace_subs=true; shift;;
       -h|--help) echo "$usage"; return 1;;
       *) echo "Invalid argument: $1"; echo "$usage"; return 1;;
     esac
   done
 
-  if [ -z "$input" ] || [ -z "$output" ] || [ -z "$sub_file" ] ||
-    [ -z "$sub_lang" ] || [ -z "$sub_name" ]; then
+  if [ -z "$input" ] || [ -z "$output" ] || [ -z "$sub_file" ]; then
     echo
     error 'Missing required arguments.'
     echo "$usage"
@@ -1039,16 +1041,19 @@ burnsubs() {
   [ "$sub_lang" = 'en' ] && sub_lang=eng
   [ "${input##*.}" = "mkv" ] && sub_codec='srt' || sub_codec='mov_text'
 
-  echo
-  ffmpeg -loglevel warning -hide_banner -stats \
-    -i "$input" -i "$sub_file" \
-    -map 0:v -map 0:a -map 0:s? -map 1:s -map 0:t? \
-    -c:v copy -c:a copy -c:s copy \
+  ffmpeg_command=(ffmpeg -loglevel warning -hide_banner -stats \
+    -sub_charenc UTF-8 -i "$input" -i "$sub_file" \
+    -map 0:v -map 0:a -c:v copy -c:a copy \
     -metadata:s:s:0 language="$sub_lang" \
-    -metadata:s:s:0 handler_name="$sub_name" \
-    "$output"
+    -metadata:s:s:0 handler_name="$sub_name")
 
-#    -c:s:s:0 "$sub_codec"
+  if [ "$replace_subs" = true ]; then
+    ffmpeg_command+=(-map 1:s -c:s "$sub_codec")
+  else
+    ffmpeg_command+=(-map 0:s? -map 1:s -c:s "$sub_codec")
+  fi
+
+  "${ffmpeg_command[@]}" "$output"
 
   if [ "$?" = 0 ]; then
     echo -e "\e[34mSubtitles successfully burnt! (Saved at: $output)\e[0m"
