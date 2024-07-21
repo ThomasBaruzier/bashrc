@@ -457,11 +457,11 @@ clean() {
   [ -d ~/.cache/jellyfin ] && mv ~/.cache/jellyfin ~/.cache-bkp
 
   if [ -n "$SSH_CLIENT" ]; then # ssh, server assumed
-    $sudo rm -rf /tmp/* /var/cache/* ~/.cache/* /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
+    $sudo rm -rf /tmp/* /var/cache/* ~/.cache/* ~/.local/share/Trash/ /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
   elif [ "$platform" = Android ]; then # android, forbid sudo and system paths
     rm -rf ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
   else # assuming local desktop
-    $sudo rm -rf /tmp/* /var/log/* /var/cache/* ~/.cache/* /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
+    $sudo rm -rf /tmp/* /var/log/* /var/cache/* ~/.cache/* ~/.local/share/Trash/ /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
   fi
 
   mv ~/.cache-bkp/* ~/.cache/ 2>/dev/null
