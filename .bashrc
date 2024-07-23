@@ -12,6 +12,10 @@
 # beam cursor
 printf '\e[6 q'
 
+# bashrc home
+bashrc_home="$HOME/.config/bashrc"
+[ -d "$bashrc_home" ] || mkdir -p "$bashrc_home" ]
+
 # system info
 platform=$(uname -o)
 if [ -x /bin/sudo ] && groups | grep -qE "\b(sudo|wheel)\b"; then
@@ -23,22 +27,23 @@ fi
 # fancy PS1
 getPS1() {
   id=$(ls -id /)
+  [ -s "$bashrc_home/color.ps1" ] && custom_color=$(<"$bashrc_home/color.ps1") || custom_color=32
   if [ "${id//[^0-9]/}" != 2 ] && [ "$platform" = 'GNU/Linux' ]; then
     if [ "${EUID}" = 0 ]; then # chroot root
-      PS1="\[\033[1;31m\]chroot\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;32m\]\w\[\033[0m\] "
+      PS1="\[\033[1;31m\]chroot\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${custom_color}m\]\w\[\033[0m\] "
     else                       # chroot user
-      PS1="\[\033[1;34m\]chroot\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;32m\]\w\[\033[0m\] "
+      PS1="\[\033[1;34m\]chroot\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${custom_color}m\]\w\[\033[0m\] "
     fi
   elif [ -z "$SSH_CLIENT" ]; then
-    if [ "${EUID}" = 0 ]; then # ssh root
+    if [ "${EUID}" = 0 ]; then # local root
       PS1="\$([[ \$? != 0 ]] && echo \"\[\033[35m\]\" || echo \"\[\033[31m\]\")\w\[\033[0m\] "
-    else                       # ssh user
-      PS1="\$([[ \$? != 0 ]] && echo \"\[\033[35m\]\" || echo \"\[\033[32m\]\")\w\[\033[0m\] "
+    else                       # local user
+      PS1="\$([[ \$? != 0 ]] && echo \"\[\033[35m\]\" || echo \"\[\033[${custom_color}m\]\")\w\[\033[0m\] "
     fi
-  elif [ "${EUID}" = 0 ]; then # local root
-    PS1="\[\033[1;31m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;32m\]\w\[\033[0m\] "
-  else                         # local user
-    PS1="\[\033[1;34m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;32m\]\w\[\033[0m\] "
+  elif [ "${EUID}" = 0 ]; then # ssh root
+    PS1="\[\033[1;31m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${custom_color}m\]\w\[\033[0m\] "
+  else                         # ssh user
+    PS1="\[\033[1;34m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${custom_color}m\]\w\[\033[0m\] "
   fi
 } && getPS1
 
