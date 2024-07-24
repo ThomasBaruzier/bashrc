@@ -1,3 +1,4 @@
+
 #
 # ~/.bashrc
 #
@@ -14,7 +15,20 @@ printf '\e[6 q'
 
 # bashrc home
 bashrc_home="$HOME/.config/bashrc"
-[ -d "$bashrc_home" ] || mkdir -p "$bashrc_home" ]
+[ -d "$bashrc_home" ] || mkdir -p "$bashrc_home"
+
+# bashrc config
+if [ ! -f "$bashrc_home/config.sh" ]; then
+  cat << EOF > "$bashrc_home/config.sh"
+#
+# ~/.config/bashrc/config.sh
+#
+
+ps1_color=32
+skip_deps_check=false
+EOF
+fi
+source "$bashrc_home/config.sh"
 
 # system info
 platform=$(uname -o)
@@ -23,29 +37,6 @@ if [ -x /bin/sudo ] && groups | grep -qE "\b(sudo|wheel)\b"; then
 else
   unset sudo
 fi
-
-# fancy PS1
-getPS1() {
-  id=$(ls -id /)
-  [ -s "$bashrc_home/color.ps1" ] && custom_color=$(<"$bashrc_home/color.ps1") || custom_color=32
-  if [ "${id//[^0-9]/}" != 2 ] && [ "$platform" = 'GNU/Linux' ]; then
-    if [ "${EUID}" = 0 ]; then # chroot root
-      PS1="\[\033[1;31m\]chroot\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${custom_color}m\]\w\[\033[0m\] "
-    else                       # chroot user
-      PS1="\[\033[1;34m\]chroot\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${custom_color}m\]\w\[\033[0m\] "
-    fi
-  elif [ -z "$SSH_CLIENT" ]; then
-    if [ "${EUID}" = 0 ]; then # local root
-      PS1="\$([[ \$? != 0 ]] && echo \"\[\033[35m\]\" || echo \"\[\033[31m\]\")\w\[\033[0m\] "
-    else                       # local user
-      PS1="\$([[ \$? != 0 ]] && echo \"\[\033[35m\]\" || echo \"\[\033[${custom_color}m\]\")\w\[\033[0m\] "
-    fi
-  elif [ "${EUID}" = 0 ]; then # ssh root
-    PS1="\[\033[1;31m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${custom_color}m\]\w\[\033[0m\] "
-  else                         # ssh user
-    PS1="\[\033[1;34m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${custom_color}m\]\w\[\033[0m\] "
-  fi
-} && getPS1
 
 # path utilis
 alias ..='cd ..'
@@ -73,6 +64,7 @@ alias brc='nano ~/.bashrc; source ~/.bashrc'
 alias rel='[ -f ~/.profile ] && source ~/.profile; [ -f ~/.bashrc ] && source ~/.bashrc'
 
 # auto sudo
+alias sudo='sudo -EH'
 alias reboot="$sudo reboot && exit"
 alias shutdown="$sudo shutdown now && exit"
 alias pacman="$sudo pacman"
@@ -90,29 +82,6 @@ alias passwd="$sudo passwd"
 alias arch-chroot="$sudo arch-chroot"
 alias gparted="$sudo gparted"
 
-# status functions
-error() { echo -e "\033[31mERROR: $@\033[0m"; }
-warn() { echo -e "\033[33mWARNING: $@\033[0m"; }
-success() { echo -e "\033[32mSUCCESS: $@\033[0m"; }
-info() { echo -e "\033[34mINFO: $@\033[0m"; }
-
-# basic functions
-ca() { bc <<< "scale=3;$*"; }
-cs() { cd "$1" && ls; }
-print() { cat "$1" | fold -sw "$COLUMNS"; }
-
-# list all helps documented in bashrc
-help() {
-  while read -r line; do
-    if [[ "$line" =~ ^[^\ ]+\(\) ]]; then
-      echo -ne "\n\e[32m${BASH_REMATCH::-2}\e[0m"
-    elif [[ "$line" =~ "echo ""'Desc : "[^"'"]+ ]]; then
-      echo -ne "\e[32m : \e[0m${BASH_REMATCH:13}"
-    fi
-  done < ~/.bashrc
-  echo -e '\n'
-}
-
 # colors
 export \
 LESS_TERMCAP_mb=$'\E[01;31m' \
@@ -128,12 +97,57 @@ alias grep="grep --color=auto"
 alias tree="tree -C"
 alias dmesg='dmesg --color'
 
+# status functions
+error() { echo -e "\033[31mERROR: $@\033[0m"; }
+warn() { echo -e "\033[33mWARNING: $@\033[0m"; }
+success() { echo -e "\033[32mSUCCESS: $@\033[0m"; }
+info() { echo -e "\033[34mINFO: $@\033[0m"; }
+
+# basic functions
+ca() { bc <<< "scale=3;$*"; }
+pp() { cat "$1" | fold -sw "$COLUMNS"; }
+
+# list all helps documented in bashrc
+help() {
+  while read -r line; do
+    if [[ "$line" =~ ^[^\ ]+\(\) ]]; then
+      echo -ne "\n\e[32m${BASH_REMATCH::-2}\e[0m"
+    elif [[ "$line" =~ "echo ""'Desc : "[^"'"]+ ]]; then
+      echo -ne "\e[32m : \e[0m${BASH_REMATCH:13}"
+    fi
+  done < ~/.bashrc
+  echo -e '\n'
+}
+
+# fancy PS1
+getPS1() {
+  id=$(ls -id /)
+  [ -n "${ps1_color//[^0-9]}" ] && ps1_color="${ps1_color//[^0-9]}" || ps1_color=32
+  if [ "${id//[^0-9]}" != 2 ] && [ "$platform" = 'GNU/Linux' ]; then
+    if [ "${EUID}" = 0 ]; then # chroot root
+      PS1="\[\033[1;31m\]chroot\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${ps1_color}m\]\w\[\033[0m\] "
+    else                       # chroot user
+      PS1="\[\033[1;34m\]chroot\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${ps1_color}m\]\w\[\033[0m\] "
+    fi
+  elif [ -z "$SSH_CLIENT" ]; then
+    if [ "${EUID}" = 0 ]; then # local root
+      PS1="\$([[ \$? != 0 ]] && echo \"\[\033[35m\]\" || echo \"\[\033[31m\]\")\w\[\033[0m\] "
+    else                       # local user
+      PS1="\$([[ \$? != 0 ]] && echo \"\[\033[35m\]\" || echo \"\[\033[${ps1_color}m\]\")\w\[\033[0m\] "
+    fi
+  elif [ "${EUID}" = 0 ]; then # ssh root
+    PS1="\[\033[1;31m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${ps1_color}m\]\w\[\033[0m\] "
+  else                         # ssh user
+    PS1="\[\033[1;34m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${ps1_color}m\]\w\[\033[0m\] "
+  fi
+} && getPS1
+
 # path and configs
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH"
 [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH"
 [ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH"
-[ -f ~/.profile ] && [ -z "$(grep '\.bashrc' ~/.profile)" ] && source ~/.profile
-[ -f ~/.addons ] && source ~/.addons
+[ -f "$bashrc_home/addons.sh" ] && source "$bashrc_home/addons.sh"
+[ -f ~/.profile ] && ! grep -q '\.bashrc' ~/.profile && source ~/.profile
 
 # update/push bashrc
 ubrc() {
@@ -157,7 +171,7 @@ pbrc() {
   echo
   local commit_name
   read -p 'Commit name: ' commit_name
-  [ -z "$commit" ] && commit_name='update'
+  [ -z "$commit_name" ] && commit_name='update'
   echo
 
   mkdir -p ~/.cache
@@ -551,10 +565,12 @@ check_deps() {
   fi
 }
 
-[ -f "$bashrc_home/skip_deps_check" ] || check_deps \
-  grep sed tar nano bc jq curl gzip \
-  gcc/build-essential/base-devel \
-  git file pv p7zip lsof screen net-tools
+if [ -z "$skip_deps_check" ] || [ "$skip_deps_check" = false ]; then
+  check_deps \
+    grep sed tar nano bc jq curl gzip \
+    gcc/build-essential/base-devel \
+    git file pv p7zip lsof screen net-tools
+fi
 
 ###########
 # HISTORY #
@@ -563,7 +579,7 @@ check_deps() {
 HISTSIZE=100000 # in memory
 HISTFILESIZE=1000000 # in disk
 HISTCONTROL=ignoredups # ignore redundant and remove duplicates
-HISTIGNORE="reboot*:shutdown*"
+HISTIGNORE="reboot*:shutdown*:shush*:rm *:rf *:rd *"
 unset HISTTIMEFORMAT # no time format
 shopt -s cmdhist # no command separation
 shopt -s histappend # append to history instead of overwrite
@@ -821,7 +837,7 @@ run() {
     exe|out) "$path" "${@:3}";;
     py) python "$path" "${@:3}";;
     jar) java -jar "$path" "${@:3}";;
-    tar.gz) (($(du -m "$path" | cut -f -1) > 10)) \
+    tar.gz|tgz|tar.xz|txz) (($(du -m "$path" | cut -f -1) > 10)) \
             && pv "$path" | tar x || tar xf "$path";;
     7z|bz2|bzip2|tbz2|tbz|gz|gzip|tgz|tar|wim|swm|esd|xz|txz|zip|zipx|dmg|img|fat|img|hfs|iso|lzma|mbr|ntfs|rar|qcow|qcow2|qcow2c|001|002|squashfs|udf|scap|uefif|vdi|vhd|vmdk|xar|pkg|z|taz)
       7z x "$path";;
@@ -880,7 +896,7 @@ myip() {
   private_ips="${private_ips// / - }"
   echo -e "PRIVATE: \e[34m$private_ips\e[0m"
 
-  public_ip=$(curl -s --max-time 5 ip.3z.ee)
+  public_ip=$(curl -s --max-time 5 ip.3z.ee 2>/dev/null)
   grep -qE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' <<< "$public_ip" || public_ip='Request Failed'
   echo -e "PUBLIC:  \e[34m$public_ip\e[0m"
 }
@@ -892,7 +908,15 @@ ports() {
     echo 'Desc : Show opened ports'
   fi
 
-  local entries=$($sudo lsof -i -P -n | grep LISTEN | awk '{print $1"\t\t"$5"\t"$8"\t"$9}' 2>/dev/null | sort -u)
+  local entries=$(
+    $sudo lsof -i -P -n | \
+      grep LISTEN | \
+      awk '{print $1"\t"$5"\t"$8"\t"$9}' 2>/dev/null | \
+      sed -E 's:\:([0-9]+)$:|\1:g' | \
+      sort -n -t'|' -k2 | \
+      tr '|' ':'
+  )
+
   if [ -n "$entries" ]; then
     printf "\e[35m%-20s %-6s %-6s %-15s\e[0m\n" "SERVICE" "TYPE" "NODE" "IP:PORT"
     echo "$entries" | while read -r service type node address; do
