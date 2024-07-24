@@ -63,7 +63,7 @@ alias brc='nano ~/.bashrc; source ~/.bashrc'
 alias rel='[ -f ~/.profile ] && source ~/.profile; [ -f ~/.bashrc ] && source ~/.bashrc'
 
 # auto sudo
-alias sudo='sudo -EH'
+[ "$platform" != 'Android' ] && alias sudo='sudo -EH'
 alias reboot="$sudo reboot && exit"
 alias shutdown="$sudo shutdown now && exit"
 alias pacman="$sudo pacman"
