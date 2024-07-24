@@ -551,7 +551,10 @@ check_deps() {
   fi
 }
 
-check_deps grep sed tar nano bc jq curl gzip gcc/build-essential/base-devel git file pv p7zip lsof screen net-tools
+[ -f "$bashrc_home/skip_deps_check" ] || check_deps \
+  grep sed tar nano bc jq curl gzip \
+  gcc/build-essential/base-devel \
+  git file pv p7zip lsof screen net-tools
 
 ###########
 # HISTORY #
