@@ -912,7 +912,7 @@ ports() {
       grep LISTEN | \
       awk '{print $1"\t"$5"\t"$8"\t"$9}' 2>/dev/null | \
       sed -E 's:\:([0-9]+)$:|\1:g' | \
-      sort -n -t'|' -k2 | \
+      sort -un -t'|' -k2 | \
       tr '|' ':'
   )
 
