@@ -578,7 +578,7 @@ fi
 HISTSIZE=100000 # in memory
 HISTFILESIZE=1000000 # in disk
 HISTCONTROL=ignoredups # ignore redundant and remove duplicates
-HISTIGNORE="reboot*:shutdown*:shush*:rm *:rf *:rd *"
+HISTIGNORE="reboot*:shutdown*:shush*"
 unset HISTTIMEFORMAT # no time format
 shopt -s cmdhist # no command separation
 shopt -s histappend # append to history instead of overwrite
