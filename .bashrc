@@ -1112,7 +1112,13 @@ snm() {
 
 file2prompt() {
   readarray -t files <<< $(find "$@" -type f -not -path '*/.*')
-  readarray -t files <<< $(file --mime-type "${files[@]}" | grep -e ' text/' -e ' application/javascript' | cut -d: -f1 | sort)
+  readarray -t files <<< $(
+    file --mime-type "${files[@]}" | \
+      grep -e ' text/' \
+        -e ' application/javascript' \
+        -e ' application/json' \
+      | cut -d: -f1 | sort
+  )
 
   [ -z "${files}" ] && echo "Nothing to do" && return
   unset prompt
