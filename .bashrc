@@ -111,8 +111,8 @@ help() {
   while read -r line; do
     if [[ "$line" =~ ^[^\ ]+\(\) ]]; then
       echo -ne "\n\e[32m${BASH_REMATCH::-2}\e[0m"
-    elif [[ "$line" =~ "echo ""'Desc : "[^"'"]+ ]]; then
-      echo -ne "\e[32m : \e[0m${BASH_REMATCH:13}"
+    elif [[ "$line" =~ "echo ""'Desc: "[^"'"]+ ]]; then
+      echo -ne "\e[32m: \e[0m${BASH_REMATCH:13}"
     fi
   done < ~/.bashrc
   echo -e '\n'
@@ -198,9 +198,9 @@ pbrc() {
 # update
 update_packages() {
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : u'
-    echo 'Desc : Update and upgrade packages'
-    echo 'Note : Please use `i` with no arguments instead'
+    echo 'Usage: u'
+    echo 'Desc: Update and upgrade packages'
+    echo 'Note: Please use `i` with no arguments instead'
     return
   fi
   echo
@@ -216,9 +216,9 @@ update_packages() {
 i() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : i <packages>'
-    echo 'Desc : Install packages'
-    echo 'Note : Upgrades packages if no argument is provided'
+    echo 'Usage: i <packages>'
+    echo 'Desc: Install packages'
+    echo 'Note: Upgrades packages if no argument is provided'
     return
   fi
 
@@ -295,7 +295,7 @@ i() {
       echo -e "\n\e[34m1.\e[0m Install found + fixable"
       echo -e "\e[34m2.\e[0m Install found"
       echo -e "\e[34m3.\e[0m Cancel\n"
-      read -e -p "> Choice (default=1) : " answer
+      read -e -p "> Choice (default=1): " answer
 
       # build package list
       case "$answer" in
@@ -362,8 +362,8 @@ EOF
 syncdb() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : syncdb'
-    echo 'Desc : Update package/executable db'
+    echo 'Usage: syncdb'
+    echo 'Desc: Update package/executable db'
     return
   fi
 
@@ -423,9 +423,9 @@ own() {
 w() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : w [<custom>|all]'
-    echo 'Desc : Make files executable'
-    echo "Default custom value : '*.sh *.exe'"
+    echo 'Usage: w [<custom>|all]'
+    echo 'Desc: Make files executable'
+    echo "Default custom value: '*.sh *.exe'"
     return
   fi
 
@@ -462,8 +462,8 @@ sz() {
 clean() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : clean'
-    echo 'Desc : Clean useless data'
+    echo 'Usage: clean'
+    echo 'Desc: Clean useless data'
     return
   fi
 
@@ -506,8 +506,8 @@ clean() {
 disk() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : disk'
-    echo 'Desc : Show available storage'
+    echo 'Usage: disk'
+    echo 'Desc: Show available storage'
     return
   fi
 
@@ -522,7 +522,7 @@ disk() {
   local percent=$(awk '{print $5}' <<< "$info")
 
   # print data
-  echo "Disk usage : $used/$total ($percent, $avail free)"
+  echo "Disk usage: $used/$total ($percent, $avail free)"
 }
 
 # dependency checker
@@ -597,12 +597,12 @@ trim_history() {
 
 clone() {
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : clone (<url> | <user> <repo>) [folder] [options]'
+    echo 'Usage: clone (<url> | <user> <repo>) [folder] [options]'
     echo '  -d, --depth: Depth of clone'
     echo '  -b, --branch: Branch to clone'
     echo '  -c, --commit: Commit to checkout'
-    echo 'Desc : Clone github repos'
-    echo 'Default : --depth 1'
+    echo 'Desc: Clone github repos'
+    echo 'Default: --depth 1'
     return
   fi
 
@@ -691,9 +691,9 @@ clone() {
 g() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : g [options]'
-    echo 'Desc : Git helper'
-    echo 'Default : commit + push'
+    echo 'Usage: g [options]'
+    echo 'Desc: Git helper'
+    echo 'Default: commit + push'
     return
   fi
 
@@ -732,7 +732,7 @@ g() {
       echo '[e] - exit'
       echo -e '\e[0m'
     fi
-    read -p 'Choice : ' choice
+    read -p 'Choice: ' choice
     if [[ -z "$choice" ]]; then
       choice='cp'
     fi
@@ -749,11 +749,11 @@ g() {
       i) git init; git branch -m main;;
       s) git config --global init.defaultBranch main
          git init; git branch -m main
-         read -p 'url : ' url
+         read -p 'url: ' url
          [ -n "$url" ] && git remote add origin "$url"
-         read -p 'gitignore : ' gitignore
+         read -p 'gitignore: ' gitignore
          [ -n "$gitignore" ] && echo -e "${gitignore// /\\n}" > .gitignore
-         read -p "files to add : " toAdd
+         read -p "files to add: " toAdd
          [ -n "$toAdd" ] && git add "$toAdd"
          git commit -m '[+] Initial commit'
          read -p "push ? " push
@@ -847,9 +847,9 @@ run() {
 r() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : r [file]'
-    echo 'Desc : File launcher'
-    echo 'Default : last launched file'
+    echo 'Usage: r [file]'
+    echo 'Desc: File launcher'
+    echo 'Default: last launched file'
     return
   fi
 
@@ -880,8 +880,8 @@ r() {
 myip() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : myip'
-    echo 'Desc : Show public and private IP'
+    echo 'Usage: myip'
+    echo 'Desc: Show public and private IP'
   fi
 
   local private_ips=$(
@@ -903,8 +903,8 @@ myip() {
 ports() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : ports'
-    echo 'Desc : Show opened ports'
+    echo 'Usage: ports'
+    echo 'Desc: Show opened ports'
   fi
 
   local entries=$(
@@ -929,8 +929,8 @@ ports() {
 furl() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : furl <url>'
-    echo 'Desc : Find the last redirect of a url'
+    echo 'Usage: furl <url>'
+    echo 'Desc: Find the last redirect of a url'
   fi
 
   echo
@@ -945,22 +945,22 @@ furl() {
 #adb() {
 #  # help
 #  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-#    echo 'Usage : adb [p|packages|u|upackages|i|install|unins|reins|pull|any adb arg]'
-#    echo 'Desc : ADB helper'
-#    echo 'Note : Use one option at a time'
+#    echo 'Usage: adb [p|packages|u|upackages|i|install|unins|reins|pull|any adb arg]'
+#    echo 'Desc: ADB helper'
+#    echo 'Note: Use one option at a time'
 #    return
 #  fi
 #
 #  case "$1" in
 #    p|packages)
-#      packages=$(adb shell pm list packages | awk  -F : '{print $2}')
+#      packages=$(adb shell pm list packages | awk  -F: '{print $2}')
 #      [ -n "$2" ] && echo "$packages" | grep "$2" --color=never || echo "$packages";;
-#    u|upackages) packages=$(sort <(adb shell pm list packages) <(adb shell pm list packages -u) | uniq -u | awk  -F : '{print $2}')
+#    u|upackages) packages=$(sort <(adb shell pm list packages) <(adb shell pm list packages -u) | uniq -u | awk  -F: '{print $2}')
 #      [ -n "$2" ] && echo "$packages" | grep "$2" --color=never || echo "$packages";;
 #    i|install) adb install "${@:2}";;
 #    unins) adb shell pm uninstall --user 0 "${@:2}";;
 #    reins) adb shell cmd package install-existing "${@:2}";;
-#    pull) adb pull $(adb shell pm path "$2" | awk -F : '{print $2}');;
+#    pull) adb pull $(adb shell pm path "$2" | awk -F: '{print $2}');;
 #    *) eval "/usr/bin/adb $@";;
 #  esac
 #}
@@ -976,9 +976,9 @@ sign() { jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore ~/.android/debu
 s() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage : scr <number>'
-    echo 'Desc : Screen helper'
-    echo 'Default : Display menu'
+    echo 'Usage: scr <number>'
+    echo 'Desc: Screen helper'
+    echo 'Default: Display menu'
     return
   fi
 
@@ -986,19 +986,23 @@ s() {
   readarray -t screens <<< $(grep -Po '[0-9]+\..+(?=\(Detached\))' <<< "$screens" | sed -E 's:([0-9]+)\.:\1 - :g')
   [ -z "$screens" ] && error 'No detached screens found' && return 1
   if [ -z "$1" ]; then
-    echo -e "\n\e[34mSCREENS :\e[0m"
+    echo -e "\n\e[34mSCREENS:\e[0m"
     for ((i=1; i < "${#screens[@]}+1"; i++)); do
       echo "$i - ${screens[i-1]//\\/\/}"
     done
-    read -p $'\nChoice (default=1) : ' answer
+    read -p $'\nChoice (d=detach all, default=1): ' answer
     [ -z "$answer" ] && answer=1
   else
     echo
     answer="$1"
   fi
-  local id=$(grep -Po '^[0-9]+' <<< "${screens[answer-1]}")
-  [ -z "$id" ] && echo -e 'No screens found' && return
-  screen -r "$id"
+  if [ "$answer" = d ]; then
+    screen -d "$(screen -ls | grep -F '(Attached)' | cut -f2)"
+  else
+    local id=$(grep -Po '^[0-9]+' <<< "${screens[answer-1]}")
+    [ -z "$id" ] && echo -e 'No screens found' && return
+    screen -r "$id"
+  fi
   echo
 }
 
