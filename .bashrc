@@ -997,13 +997,20 @@ s() {
     answer="$1"
   fi
   if [ "$answer" = d ]; then
-    screen -d "$(screen -ls | grep -F '(Attached)' | cut -f2)"
+    mapfile -t to_detach < <(screen -ls | grep -F '(Attached)' | cut -f2)
+    if [ -n "$to_detach" ]; then
+      for screen in "${to_detach[@]}"; do
+        screen -d "$screen"
+      done
+    else
+      echo $'Nothing found to detach.\n'
+    fi
   else
     local id=$(grep -Po '^[0-9]+' <<< "${screens[answer-1]}")
     [ -z "$id" ] && echo -e 'No screens found' && return
     screen -r "$id"
+    echo
   fi
-  echo
 }
 
 ##############
