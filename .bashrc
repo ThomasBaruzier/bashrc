@@ -55,7 +55,7 @@ alias l="$ls"; alias ls="$ls"; alias sl="$ls"
 
 # basic aliases
 alias c='clear'
-alias e='nano'
+alias n='nano'
 alias md='mkdir'
 alias rf="$sudo rm -rf"
 alias rd="$sudo rm -d"
@@ -973,7 +973,7 @@ sign() { jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore ~/.android/debu
 # SCREEN #
 ##########
 
-sc() {
+s() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
     echo 'Usage: scr <number>'
