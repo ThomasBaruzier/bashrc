@@ -973,7 +973,7 @@ sign() { jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore ~/.android/debu
 # SCREEN #
 ##########
 
-s() {
+sc() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
     echo 'Usage: scr <number>'
