@@ -55,7 +55,7 @@ alias l="$ls"; alias ls="$ls"; alias sl="$ls"
 
 # basic aliases
 alias c='clear'
-alias nn='nano'
+alias e='nano'
 alias md='mkdir'
 alias rf="$sudo rm -rf"
 alias rd="$sudo rm -d"
