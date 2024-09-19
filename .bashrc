@@ -1121,6 +1121,7 @@ snm() {
   echo
 }
 
+alias f2p='file2prompt'
 file2prompt() {
   readarray -t files <<< $(find "$@" -type f -not -path '*/.*')
   readarray -t files <<< $(
@@ -1151,6 +1152,7 @@ file2prompt() {
   echo "$prompt"
 }
 
+alias p2f='prompt2file'
 prompt2file() {
   unset code inCode filename
   while IFS= read -r line; do
