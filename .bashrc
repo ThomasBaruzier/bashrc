@@ -568,7 +568,7 @@ if [ -z "$skip_deps_check" ] || [ "$skip_deps_check" = false ]; then
   check_deps \
     grep sed tar nano bc jq curl gzip \
     gcc/build-essential/base-devel \
-    git file pv p7zip lsof screen net-tools
+    git file pv 7zip lsof screen net-tools
 fi
 
 ###########
