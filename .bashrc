@@ -204,7 +204,9 @@ update_packages() {
     return
   fi
   echo
-  if pacman -V >/dev/null 2>&1; then
+  if yay -V >/dev/null 2>&1; then
+    $sudo yay -Syu --devel
+  elif pacman -V >/dev/null 2>&1; then
     $sudo pacman -Syu
   elif apt -v >/dev/null 2>&1; then
     $sudo apt update && $sudo apt upgrade
