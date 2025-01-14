@@ -198,18 +198,35 @@ pbrc() {
 # update
 update_packages() {
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: u'
+    echo 'Usage: update_packages [-f|--force]'
     echo 'Desc: Update and upgrade packages'
     echo 'Note: Please use `i` with no arguments instead'
     return
   fi
   echo
-  if yay -V >/dev/null 2>&1; then
-    $sudo yay -Syu --devel
-  elif pacman -V >/dev/null 2>&1; then
-    $sudo pacman -Syu
-  elif apt -v >/dev/null 2>&1; then
-    $sudo apt update && $sudo apt upgrade
+
+  if command -v yay &>/dev/null; then
+    local pkg_manager="yay"
+    local update_cmd="-Syu --devel"
+  elif command -v pacman &>/dev/null; then
+    local pkg_manager="sudo pacman"
+    local update_cmd="-Syu"
+  elif command -v apt &>/dev/null; then
+    local pkg_manager="sudo apt"
+    local update_cmd="update && $pkg_manager upgrade"
+  else
+    echo "No supported package manager found (yay, pacman, apt)."
+    return 1
+  fi
+
+  if [ "$1" == '-f' ] || [ "$1" == '--force' ]; then
+    if [ "$pkg_manager" == "yay" ] || [ "$pkg_manager" == "sudo pacman" ]; then
+      yes | $pkg_manager $update_cmd
+    else
+      $pkg_manager $update_cmd -y
+    fi
+  else
+    $pkg_manager $update_cmd
   fi
   echo
 }
@@ -218,16 +235,20 @@ update_packages() {
 i() {
   # help
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: i <packages>'
+    echo 'Usage: i [-f|--force|<packages>]'
     echo 'Desc: Install packages'
     echo 'Note: Upgrades packages if no argument is provided'
+    echo 'Note: --force only works when upgrading'
     return
   fi
 
   # init
   unset packages
   local name good bad fixedPackages fixedNames
-  [ -z "$1" ] && update_packages && return
+  if [ -z "$1" ] || [[ "$1" == '-f' || "$1" == '--force' ]]; then
+    update_packages "$1"
+    return
+  fi
 
   # for pacman
   if pacman -V >/dev/null 2>&1; then
