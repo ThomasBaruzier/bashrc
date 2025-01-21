@@ -206,27 +206,20 @@ update_packages() {
   echo
 
   if yay -V &>/dev/null; then
-    local pkg_manager="yay"
-    local update_cmd="-Syu --devel"
+    update_cmds=("yay -Syu --devel")
   elif pacman -V &>/dev/null; then
-    local pkg_manager="$sudo pacman"
-    local update_cmd="-Syu"
+    update_cmds=("$sudo pacman -Syu")
   elif apt -v &>/dev/null; then
-    local pkg_manager="$sudo apt"
-    local update_cmd="update && $pkg_manager upgrade"
+    update_cmds=("$sudo apt update" "$sudo apt upgrade")
   else
     echo "No supported package manager found (yay, pacman, apt)."
     return 1
   fi
 
   if [ "$1" == '-f' ] || [ "$1" == '--force' ]; then
-    if [ "$pkg_manager" == "yay" ] || [ "$pkg_manager" == "sudo pacman" ]; then
-      yes | $pkg_manager $update_cmd
-    else
-      $pkg_manager $update_cmd -y
-    fi
+    for cmd in "${update_cmds[@]}"; do yes | eval "$cmd"; done
   else
-    $pkg_manager $update_cmd
+    for cmd in "${update_cmds[@]}"; do eval "$cmd"; done
   fi
   echo
 }
