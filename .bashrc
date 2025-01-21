@@ -205,14 +205,14 @@ update_packages() {
   fi
   echo
 
-  if command -v yay &>/dev/null; then
+  if yay -V &>/dev/null; then
     local pkg_manager="yay"
     local update_cmd="-Syu --devel"
-  elif command -v pacman &>/dev/null; then
-    local pkg_manager="sudo pacman"
+  elif pacman -V &>/dev/null; then
+    local pkg_manager="$sudo pacman"
     local update_cmd="-Syu"
-  elif command -v apt &>/dev/null; then
-    local pkg_manager="sudo apt"
+  elif apt -v &>/dev/null; then
+    local pkg_manager="$sudo apt"
     local update_cmd="update && $pkg_manager upgrade"
   else
     echo "No supported package manager found (yay, pacman, apt)."
