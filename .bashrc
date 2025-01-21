@@ -1172,7 +1172,14 @@ file2prompt() {
     prompt+=$'\n`'"${path}"$'`:\n```'"${ext}"$'\n'"${file}"$'\n```\n'
   done
 
-  echo "$prompt"
+  if [ -n "$WAYLAND_DISPLAY" ]; then
+    lines=$(wc -l <<< "$prompt")
+    lines="${lines%% *}"
+    wl-copy <<< "$prompt"
+    echo "Copied $lines lines into the clipboard"
+  else
+    echo "$prompt"
+  fi
 }
 
 alias p2f='prompt2file'
