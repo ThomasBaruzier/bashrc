@@ -1179,13 +1179,14 @@ alias p2f='prompt2file'
 prompt2file() {
   unset code inCode filename
   while IFS= read -r line; do
-    if [[ "$line" =~ ^\[(.+)\]$ && -z "$inCode" ]]; then
+    if [[ ( "$line" =~ ^\[(.+)\]$ || "$line" =~ ^\`(.+)\`:?$ )
+      && -n "${line//[^a-zA-Z0-9]}" && -z "$inCode" ]]; then
       filename="${BASH_REMATCH[1]}"
       continue
     fi
 
     [ -z "$filename" ] && continue
-    if [ "$line" = '```' ]; then
+    if [[ "$line" =~ ^'```'[a-z]* ]]; then
       [ -z "$inCode" ] && inCode=true && continue
       echo "Writing $filename..."
       if [ -f "$filename" ]; then
