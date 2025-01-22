@@ -1165,7 +1165,7 @@ file2prompt() {
     prompt+=$'\n`'"${path}"$'`:\n```'"${ext}"$'\n'"${file}"$'\n```\n'
   done
 
-  if [ -n "$WAYLAND_DISPLAY" ]; then
+  if [ -n "$WAYLAND_DISPLAY" ] && [ -t 1 ]; then
     lines=$(wc -l <<< "$prompt")
     lines="${lines%% *}"
     wl-copy <<< "$prompt"
