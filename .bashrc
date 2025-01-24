@@ -1188,7 +1188,7 @@ prompt2file() {
     [ -z "$filename" ] && continue
     if [[ "$line" =~ ^'```'[a-z]* ]]; then
       [ -z "$inCode" ] && inCode=true && continue
-      echo "Writing $filename..."
+      echo "Writing \`$filename\`..."
       if [ -f "$filename" ]; then
         read -p "Overwrite '$filename'? (default=n)" answer
         [ "$answer" != y ] && unset filename code inCode && continue
