@@ -1145,18 +1145,15 @@ file2prompt() {
       grep -e ' text/' \
         -e ' application/javascript' \
         -e ' application/json' \
-      | cut -d: -f1 | sort
+      | cut -d':' -f1
   )
 
-  [ -z "${files}" ] && echo "Nothing to do" && return
+  [ -z "${files}" ] && echo "No files found" >&2 && return 1
   unset prompt
 
   for path in "${files[@]}"; do
-    local file=$(cat "$path")
+    local file=$(<"$path")
     [ "${path:0:2}" = './' ] && path="${path:2}"
-    #while [[ "${file:0:1}" = ' ' || "${file:0:1}" = $'\n' ]]; do
-    #  file="${file:1}"
-    #done
     while [[ "${file::-1}" = ' ' || "${file::-1}" = $'\n' ]]; do
       file="${file:0:-1}"
     done
