@@ -999,12 +999,13 @@ s() {
   fi
 
   local screens=$(screen -ls)
-  readarray -t screens <<< $(grep -Po '[0-9]+\..+(?=\(Detached\))' <<< "$screens" | sed -E 's:([0-9]+)\.:\1 - :g')
+  readarray -t screens <<< $(grep -Po '[0-9]+\..+(?=\(Detached\))' <<< "$screens")
   [ -z "$screens" ] && error 'No detached screens found' && return 1
   if [ -z "$1" ]; then
     echo -e "\n\e[34mSCREENS:\e[0m"
     for ((i=1; i < "${#screens[@]}+1"; i++)); do
-      echo "$i - ${screens[i-1]//\\/\/}"
+      screen="${screens[i-1]//\\/\/}"
+      echo "$i - ${screen/\./ - }"
     done
     read -p $'\nChoice (d=detach all, default=1): ' answer
     [ -z "$answer" ] && answer=1
@@ -1175,28 +1176,26 @@ file2prompt() {
 alias p2f='prompt2file'
 prompt2file() {
   unset code inCode filename
-  mapfile -t lines < "$1"
-
-  for line in "${lines[@]}"; do
-    if [[ ( "$line" =~ ^\#*\ ?\`[^\`]+\`:?$ ||
-            "$line" =~ ^\#*\ ?\*+([^\*]+)\*+:?$ ) &&
-      ( -n "${line//[^a-zA-Z0-9]}" && -z "$inCode" ) ]]; then
+  while IFS= read -r line; do
+    if [[ ( "$line" =~ ^\[(.+)\]$ || "$line" =~ ^\`(.+)\`:?$ )
+      && -n "${line//[^a-zA-Z0-9]}" && -z "$inCode" ]]; then
       filename="${BASH_REMATCH[1]}"
       continue
     fi
 
     [ -z "$filename" ] && continue
-    if [[ "$line" =~ ^'```'[a-z]*$ ]]; then
+    if [[ "$line" =~ ^'```'[a-z]* ]]; then
       [ -z "$inCode" ] && inCode=true && continue
       echo "Writing \`$filename\`..."
       if [ -f "$filename" ]; then
-        read -p "Overwrite \`$filename\`? (default=n): " answer
+        read -p "Overwrite '$filename'? (default=n)" answer
         [ "$answer" != y ] && unset filename code inCode && continue
       fi
-      echo "${code:1}" > "$filename"
+      echo "$code" > "$filename"
       unset filename code inCode
     else
       code+=$'\n'"$line"
     fi
-  done
+
+  done < "$1"
 }
