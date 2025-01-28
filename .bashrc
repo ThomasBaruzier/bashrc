@@ -1219,14 +1219,15 @@ prompt2file() {
     unset filename code
   done
 
-  [ -z "$filenames" ] && return
+  [ -z "$filenames" ] && echo 'No files found' && return 1
 
   [[ "${@:2}" = *'c'* ]] && \
   sed -i 's:\/\*.*\*\/::;s:\/\/.*::' "${filenames[@]}" && \
   echo '~ Removed comments'
 
   [[ "${@:2}" = *'s'* ]] && \
-  sed -i 's/[[:space:]]\+$//' "${filenames[@]}" && \
+  sed -i 's:\ +$::' "${filenames[@]}" && \
+  sed -i -z 's:\n\n\n*:\n\n:g;s:^\n*::;s:\n*$:\n:' "${filenames[@]}" && \
   echo '~ Fixed spaces'
 
   return 0
