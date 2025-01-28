@@ -1176,26 +1176,28 @@ file2prompt() {
 alias p2f='prompt2file'
 prompt2file() {
   unset code inCode filename
-  while IFS= read -r line; do
-    if [[ ( "$line" =~ ^\[(.+)\]$ || "$line" =~ ^\`(.+)\`:?$ )
-      && -n "${line//[^a-zA-Z0-9]}" && -z "$inCode" ]]; then
+  mapfile -t lines < "$1"
+
+  for line in "${lines[@]}"; do
+    if [[ ( "$line" =~ ^\#*\ ?\`[^\`]+\`:?$ ||
+            "$line" =~ ^\#*\ ?\*+([^\*]+)\*+:?$ ) &&
+      ( -n "${line//[^a-zA-Z0-9]}" && -z "$inCode" ) ]]; then
       filename="${BASH_REMATCH[1]}"
       continue
     fi
 
     [ -z "$filename" ] && continue
-    if [[ "$line" =~ ^'```'[a-z]* ]]; then
+    if [[ "$line" =~ ^'```'[a-z]*$ ]]; then
       [ -z "$inCode" ] && inCode=true && continue
       echo "Writing \`$filename\`..."
       if [ -f "$filename" ]; then
-        read -p "Overwrite '$filename'? (default=n)" answer
+        read -p "Overwrite \`$filename\`? (default=n): " answer
         [ "$answer" != y ] && unset filename code inCode && continue
       fi
-      echo "$code" > "$filename"
+      echo "${code:1}" > "$filename"
       unset filename code inCode
     else
       code+=$'\n'"$line"
     fi
-
-  done < "$1"
+  done
 }
