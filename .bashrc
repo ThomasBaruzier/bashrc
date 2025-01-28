@@ -1175,29 +1175,46 @@ file2prompt() {
 
 alias p2f='prompt2file'
 prompt2file() {
-  unset code inCode filename
+  unset code filename overwrite
   mapfile -t lines < "$1"
+  count="${#lines[@]}"
 
-  for line in "${lines[@]}"; do
-    if [[ ( "$line" =~ ^\#*\ ?\`[^\`]+\`:?$ ||
-            "$line" =~ ^\#*\ ?\*+([^\*]+)\*+:?$ ) &&
-      ( -n "${line//[^a-zA-Z0-9]}" && -z "$inCode" ) ]]; then
+  for ((i=0; i < count; i++)); do
+    line="${lines[i]}"
+    next="${lines[i+1]}"
+
+    if [[
+      "$next" =~ ^'```'[a-z]*$ && (
+      "$line" =~ ^\#*\ ?\`([^\`]+)\`:?$ ||
+      "$line" =~ ^\#*\ ?\*+([^\*]+)\*+:?$ )
+      && -n "${lines[i]//[^a-zA-Z0-9]}"
+    ]]; then
       filename="${BASH_REMATCH[1]}"
+      unset code
       continue
     fi
 
     [ -z "$filename" ] && continue
-    if [[ "$line" =~ ^'```'[a-z]*$ ]]; then
-      [ -z "$inCode" ] && inCode=true && continue
-      echo "Writing \`$filename\`..."
-      if [ -f "$filename" ]; then
-        read -p "Overwrite \`$filename\`? (default=n): " answer
-        [ "$answer" != y ] && unset filename code inCode && continue
+    [[ ! "$line" =~ ^'```'$ ]] && code+=$'\n'"$line" && continue
+    echo -n "> $filename"
+
+    if [ -f "$filename" ]; then
+      if [ "$overwrite" == 'all' ]; then
+        echo ' - ow'
+      else
+        read -p $' - ow? \e[s' -N1 answer
+        if [ "$answer" == a ]; then
+          overwrite='all'
+          echo
+        elif [ "$answer" != y ]; then
+          echo -n $'\e[un\n'
+          unset filename code
+          continue
+        else echo; fi
       fi
-      echo "${code:1}" > "$filename"
-      unset filename code inCode
-    else
-      code+=$'\n'"$line"
-    fi
+    else echo " - ok"; fi
+
+    echo "${code:1}" > "$filename"
+    unset filename code
   done
 }
