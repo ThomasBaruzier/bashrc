@@ -1175,19 +1175,19 @@ file2prompt() {
 
 alias p2f='prompt2file'
 prompt2file() {
-  unset code filename overwrite
+  unset code filename filenames overwrite
   mapfile -t lines < "$1"
   count="${#lines[@]}"
 
-  for ((i=0; i < count; i++)); do
-    line="${lines[i]}"
-    next="${lines[i+1]}"
+  for ((i=1; i < count; i++)); do
+    line="${lines[i-1]}"
+    next="${lines[i]}"
 
     if [[
       "$next" =~ ^'```'[a-z]*$ && (
       "$line" =~ ^\#*\ ?\`([^\`]+)\`:?$ ||
       "$line" =~ ^\#*\ ?\*+([^\*]+)\*+:?$ )
-      && -n "${lines[i]//[^a-zA-Z0-9]}"
+      && -n "${line//[^a-zA-Z0-9]}"
     ]]; then
       filename="${BASH_REMATCH[1]}"
       unset code
@@ -1195,7 +1195,7 @@ prompt2file() {
     fi
 
     [ -z "$filename" ] && continue
-    [[ ! "$line" =~ ^'```'$ ]] && code+=$'\n'"$line" && continue
+    [[ ! "$next" =~ ^'```'$ ]] && code+=$'\n'"$next" && continue
     echo -n "> $filename"
 
     if [ -f "$filename" ]; then
@@ -1214,7 +1214,20 @@ prompt2file() {
       fi
     else echo " - ok"; fi
 
+    filenames+=("$filename")
     echo "${code:1}" > "$filename"
     unset filename code
   done
+
+  [ -z "$filenames" ] && return
+
+  [[ "${@:2}" = *'c'* ]] && \
+  sed -i 's:\/\*.*\*\/::;s:\/\/.*::' "${filenames[@]}" && \
+  echo '~ Removed comments'
+
+  [[ "${@:2}" = *'s'* ]] && \
+  sed -i 's/[[:space:]]\+$//' "${filenames[@]}" && \
+  echo '~ Fixed spaces'
+
+  return 0
 }
