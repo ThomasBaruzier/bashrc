@@ -812,9 +812,41 @@ g() {
   echo
 }
 
-#################
-# FILE LAUNCHER #
-#################
+#########
+# FILES #
+#########
+
+ren() {
+  local depth="-maxdepth 1"
+  local pattern=""
+  local replacement=""
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -r) depth=""; shift;;
+      *)if [ -z "$pattern" ]; then
+           pattern="$1"
+        elif [ -z "$replacement" ]; then
+          replacement="$1"
+        fi; shift;;
+    esac
+  done
+
+  [ -z "$pattern" ] && echo 'No patterns' && return 1
+
+  mapfile -t files < <(find . $depth -not -path '*/\.*')
+  mapfile -t renamed < <(
+    printf '%s\n' "${files[@]}" | sed -E "s:$pattern:$replacement:g"
+  )
+
+  for i in "${!files[@]}"; do
+    [ ! -e "${files[i]}" ] && continue
+    [ "${files[i]}" = "${renamed[i]}" ] && continue
+    mv "${files[i]}" "${renamed[i]}" 2>/dev/null && \
+    echo "Renamed: ${files[i]} -> ${renamed[i]}" || \
+    echo "Failed to rename: ${files[i]}"
+  done
+}
 
 run() {
   # init
