@@ -17,21 +17,16 @@ bashrc_home="$HOME/.config/bashrc"
 [ -d "$bashrc_home" ] || mkdir -p "$bashrc_home"
 
 # bashrc config
-if [ ! -f "$bashrc_home/config.sh" ]; then
-  cat << EOF > "$bashrc_home/config.sh"
-#
-# ~/.config/bashrc/config.sh
-#
-
-ps1_color=32
-skip_deps_check=false
-EOF
-fi
-source "$bashrc_home/config.sh"
+[ ! -f "$bashrc_home/config.sh" ] && \
+echo $'#\n# config.sh\n#\n\nps1_color=32\nskip_deps_check=true' \
+> "$bashrc_home/config.sh"
+mapfile -t configs < <(find "$bashrc_home" -name "*.sh")
+for config in "${configs[@]}"; do source "$config"; done
 
 # system info
 platform=$(uname -o)
-if [ -x /bin/sudo ] && groups | grep -qE "\b(sudo|wheel)\b"; then
+if [ -x /bin/sudo ] && [ "$platform" != 'Android' ] && \
+  groups | grep -qE "\b(sudo|wheel)\b"; then
   sudo=sudo
 else
   unset sudo
@@ -63,7 +58,7 @@ alias brc='nano ~/.bashrc; source ~/.bashrc'
 alias rel='[ -f ~/.profile ] && source ~/.profile; [ -f ~/.bashrc ] && source ~/.bashrc'
 
 # auto sudo
-[ "$platform" != 'Android' ] && alias sudo='sudo -EH'
+alias sudo='sudo -EH'
 alias reboot="$sudo reboot && exit"
 alias shutdown="$sudo shutdown now && exit"
 alias pacman="$sudo pacman"
@@ -106,18 +101,6 @@ info() { echo -e "\033[34mINFO: $@\033[0m"; }
 ca() { bc <<< "scale=3;$*"; }
 pp() { cat "$1" | fold -sw "$COLUMNS"; }
 
-# list all helps documented in bashrc
-help() {
-  while read -r line; do
-    if [[ "$line" =~ ^[^\ ]+\(\) ]]; then
-      echo -ne "\n\e[32m${BASH_REMATCH::-2}\e[0m"
-    elif [[ "$line" =~ "echo ""'Desc: "[^"'"]+ ]]; then
-      echo -ne "\e[32m: \e[0m${BASH_REMATCH:13}"
-    fi
-  done < ~/.bashrc
-  echo -e '\n'
-}
-
 # fancy PS1
 getPS1() {
   id=$(ls -id /)
@@ -148,7 +131,11 @@ getPS1() {
 [ -f "$bashrc_home/addons.sh" ] && source "$bashrc_home/addons.sh"
 [ -f ~/.profile ] && ! grep -q '\.bashrc' ~/.profile && source ~/.profile
 
-# update/push bashrc
+########
+# SYNC #
+########
+
+# update bashrc
 ubrc() {
   echo
   mkdir -p ~/.cache
@@ -166,6 +153,7 @@ ubrc() {
   echo
 }
 
+# upload bashrc
 pbrc() {
   echo
   local commit_name
@@ -191,20 +179,79 @@ pbrc() {
   echo
 }
 
+# push pull config error
+pp_config() {
+  if [ -z "$remote_server" ] || [ -z "$remote_destination" ]; then
+    echo -n 'Error: please configure \$remote_server and'
+    echo "\$remote_destination in '$bashrc_home/config.sh'"
+    return 1
+  fi
+
+  remote_port="${remote_server##*:}"
+  remote_address="${remote_server%:*}"
+  return 0
+}
+
+# push files to remote
+push() {
+  pp_config || return 1
+  local files=() basenames=() x
+  mkdir -p ~/.cache
+
+  if [ -p /dev/stdin ]; then
+    cat > ~/.cache/pipe.txt
+    files+=("$(readlink -f ~/.cache/pipe.txt)")
+    basenames+=("pipe.txt")
+  elif [ -z "$1" ]; then
+    echo "No input." && return 1
+  else
+    for i in "$@"; do
+      [ ! -e "$i" ] && echo "Skipping '$i': invalid path." && return 1
+      if [ -d "$i" ]; then
+        read -p "Warning: '$i' is a directory. Continue? (y/n) " x
+        [ "$x" != 'y' ] && return 1
+      fi
+      files+=("$(readlink -f "$i")")
+    done
+    mapfile -t files < <(printf '%s\n' "${files[@]}" | awk '!seen[$0]++')
+    for i in "${files[@]}"; do
+      basenames+=("$(basename "$i")")
+    done
+  fi
+
+  printf '%s\n' "${basenames[@]}" > ~/.cache/latest-upload.txt
+  scp -P "$remote_port" -r ~/.cache/latest-upload.txt \
+    "${files[@]}" "$remote_address:$remote_destination"
+  rm -f ~/.cache/latest-upload.txt
+}
+
+# pull files from remote
+pull() {
+  pp_config || return 1
+  local path=() files=() dest='.'
+  local latest="$remote_destination/latest-upload.txt"
+
+  [ -d '/sdcard/Download/' ] && dest='/sdcard/Download/'
+  [ -n "$1" ] && dest="$1"
+  mapfile -t files < <(ssh "$remote_address" -p "$remote_port" cat "$latest")
+  [ -z "$files" ] && echo "Error: No recent uploads found." && return 1
+
+  if [ "${files[0]}" = "pipe.txt" ]; then
+    ssh "$remote_address" -p "$remote_port" cat "$remote_destination/pipe.txt"
+  else
+    for i in "${files[@]}"; do
+      path+=("$remote_address:$remote_destination/$i")
+    done
+    scp -r -P "$remote_port" "${path[@]}" "$dest"
+  fi
+}
+
 ############
 # PACKAGES #
 ############
 
-# update
+# helper for i()
 update_packages() {
-  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: update_packages [-f|--force]'
-    echo 'Desc: Update and upgrade packages'
-    echo 'Note: Please use `i` with no arguments instead'
-    return
-  fi
-  echo
-
   if yay -V &>/dev/null; then
     update_cmds=("yay -Syu --devel")
   elif pacman -V &>/dev/null; then
@@ -224,17 +271,8 @@ update_packages() {
   echo
 }
 
-# install
+# package installer
 i() {
-  # help
-  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: i [-f|--force|<packages>]'
-    echo 'Desc: Install packages'
-    echo 'Note: Upgrades packages if no argument is provided'
-    echo 'Note: --force only works when upgrading'
-    return
-  fi
-
   # init
   unset packages
   local name good bad fixedPackages fixedNames
@@ -374,18 +412,9 @@ int main() {
 EOF
 ################ end of code ################
 
-# actualize db
+# update db
 syncdb() {
-  # help
-  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: syncdb'
-    echo 'Desc: Update package/executable db'
-    return
-  fi
-
   if pacman -V >/dev/null 2>&1; then
-
-    # init
     echo
     $sudo pacman -Fy
     mkdir -p ~/.config ~/.cache
@@ -396,7 +425,7 @@ syncdb() {
     echo -e "\e[1m\e[34m::\e[0m\e[1m Extracting files...\e[0m"
     for file in "${files[@]}"; do
       echo " extracting $file"
-      $sudo gzip -cd < "$file" >> ~/.cache/pacman.db.temp
+      gzip -cd < "$file" >> ~/.cache/pacman.db.temp
     done
 
     # c code execution
@@ -407,7 +436,6 @@ syncdb() {
     # finishing
     $sudo rm -rf ~/.cache/extract.exe ~/.cache/extract.c ~/.cache/pacman.db.temp
     echo -e "\e[1m\e[34m::\e[0m\e[1m Done - ~/.config/pacman.db - $(du -h ~/.config/pacman.db | awk '{print $1}')\e[0m"
-
   else
     error 'Not using pacman'
     return 1
@@ -432,19 +460,11 @@ own() {
       paths+=("${found_paths[@]}")
     done
   fi
-  sudo chown "$USER" "${paths[@]}"
+  $sudo chown "$USER" "${paths[@]}"
 }
 
 # chmod helper
 w() {
-  # help
-  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: w [<custom>|all]'
-    echo 'Desc: Make files executable'
-    echo "Default custom value: '*.sh *.exe'"
-    return
-  fi
-
   # make executable
   if [ -z "$1" ]; then
     chmod +x *.sh *.exe 2>/dev/null
@@ -474,15 +494,8 @@ sz() {
   fi
 }
 
-# cleaning
+# cleaning (opinionated)
 clean() {
-  # help
-  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: clean'
-    echo 'Desc: Clean useless data'
-    return
-  fi
-
   disk
   mkdir -p ~/.cache-bkp
   [ -d ~/.cache/torch ] && mv ~/.cache/torch ~/.cache-bkp
@@ -520,13 +533,6 @@ clean() {
 
 # disk space
 disk() {
-  # help
-  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: disk'
-    echo 'Desc: Show available storage'
-    return
-  fi
-
   # extract data
   unset info
   [ "$platform" = 'Android' ] || local info=$(df -h | grep -E '/$')
@@ -598,14 +604,7 @@ HISTIGNORE="reboot*:shutdown*:shush*"
 unset HISTTIMEFORMAT # no time format
 shopt -s cmdhist # no command separation
 shopt -s histappend # append to history instead of overwrite
-export PROMPT_COMMAND="history -a; $PROMPT_COMMAND"
-
-#trap trim_history EXIT
-trim_history() {
-  history -a
-  local unique_lines=$(tac ~/.bash_history | awk '!seen[$0]++' | tac)
-  echo "$unique_lines" > ~/.bash_history
-}
+PROMPT_COMMAND="history -a; history -c; history -r; $PROMPT_COMMAND"
 
 #######
 # GIT #
@@ -622,13 +621,13 @@ clone() {
     return
   fi
 
-  if [ "${1:0:8}" = 'https://' ] || [ "${1:0:7}" = 'http://' ]; then
+  if [[ "$1" =~ ^(https?://|git@) ]]; then
     local url="$1"
   elif [ -n "$2" ]; then
     local url="https://github.com/$1/$2.git"
     shift
   else
-    error 'Synthax error. Use clone --help for more information'
+    error 'Syntax error. Usage: clone <url> or clone <username> <repository>'
     return 1
   fi
 
@@ -705,14 +704,6 @@ clone() {
 
 # git helper
 g() {
-  # help
-  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: g [options]'
-    echo 'Desc: Git helper'
-    echo 'Default: commit + push'
-    return
-  fi
-
   # menu
   if [[ -z "$1" ]]; then
     echo
@@ -861,14 +852,6 @@ run() {
 }
 
 r() {
-  # help
-  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: r [file]'
-    echo 'Desc: File launcher'
-    echo 'Default: last launched file'
-    return
-  fi
-
   # init
   mkdir -p ~/.cache/last
   if [ -f ~/.cache/last/script ]; then
@@ -883,7 +866,7 @@ r() {
     run "$last" "$@"
   else
     [ -n "$last" ] && last="($last)"
-    last=${last/$HOME/\~}
+    last="${last/$HOME/\~}"
     error "File is empty or doesn't exist $last"
     return 1
   fi
@@ -894,12 +877,6 @@ r() {
 ##############
 
 myip() {
-  # help
-  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: myip'
-    echo 'Desc: Show public and private IP'
-  fi
-
   local private_ips=$(
     ifconfig 2>/dev/null | \
     grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | \
@@ -917,12 +894,6 @@ myip() {
 }
 
 ports() {
-  # help
-  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: ports'
-    echo 'Desc: Show opened ports'
-  fi
-
   local entries=$(
     $sudo lsof -i -P -n | \
       grep LISTEN | \
@@ -942,62 +913,11 @@ ports() {
   fi
 }
 
-furl() {
-  # help
-  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: furl <url>'
-    echo 'Desc: Find the last redirect of a url'
-  fi
-
-  echo
-  wget -S --spider "$1" 2>&1 | sed -En 's/^--[[:digit:]: -]{19}--  https?:\/\/(.*)/> \1\n/p'
-}
-
-###########
-# ANDROID #
-###########
-
-# broken
-#adb() {
-#  # help
-#  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-#    echo 'Usage: adb [p|packages|u|upackages|i|install|unins|reins|pull|any adb arg]'
-#    echo 'Desc: ADB helper'
-#    echo 'Note: Use one option at a time'
-#    return
-#  fi
-#
-#  case "$1" in
-#    p|packages)
-#      packages=$(adb shell pm list packages | awk  -F: '{print $2}')
-#      [ -n "$2" ] && echo "$packages" | grep "$2" --color=never || echo "$packages";;
-#    u|upackages) packages=$(sort <(adb shell pm list packages) <(adb shell pm list packages -u) | uniq -u | awk  -F: '{print $2}')
-#      [ -n "$2" ] && echo "$packages" | grep "$2" --color=never || echo "$packages";;
-#    i|install) adb install "${@:2}";;
-#    unins) adb shell pm uninstall --user 0 "${@:2}";;
-#    reins) adb shell cmd package install-existing "${@:2}";;
-#    pull) adb pull $(adb shell pm path "$2" | awk -F: '{print $2}');;
-#    *) eval "/usr/bin/adb $@";;
-#  esac
-#}
-
-dapk() { apktool d "$1" "$1"; }
-capk() { apktool b "$1"; }
-sign() { jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore ~/.android/debug.keystore "$1" androiddebugkey -storepass android; }
-
 ##########
 # SCREEN #
 ##########
 
 s() {
-  # help
-  if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: scr <number>'
-    echo 'Desc: Screen helper'
-    echo 'Default: Display menu'
-    return
-  fi
-
   local screens=$(screen -ls)
   readarray -t screens <<< $(grep -Po '[0-9]+\..+(?=\(Detached\))' <<< "$screens")
   [ -z "$screens" ] && error 'No detached screens found' && return 1
