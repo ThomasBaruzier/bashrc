@@ -286,13 +286,13 @@ i() {
     local installer=pacman
 
     # determine packages status
-    [ -f "$HOME/.config/pacman.db" ] || syncdb
+    [ -f "$bashrc_home/pacman.db" ] || syncdb
     for package in "$@"; do
-      if grep -qE "^$package(:|$)" < "$HOME/.config/pacman.db"; then
+      if grep -qE "^$package(:|$)" < "$bashrc_home/pacman.db"; then
         # existing
         good+=("$package")
       else
-        name=$(grep -E ":usr/bin/$package(:|$)" "$HOME/.config/pacman.db")
+        name=$(grep -E ":usr/bin/$package(:|$)" "$bashrc_home/pacman.db")
         name="${name%%:*}"
         if [[ -n "$name" && "$name" != "$package" ]]; then
           # fixable
@@ -419,7 +419,7 @@ syncdb() {
     $sudo pacman -Fy
     mkdir -p ~/.config ~/.cache
     rm -f ~/.cache/pacman.db.temp
-    files=($(find /var/lib/pacman/sync/ -name *.files))
+    local files=($(find /var/lib/pacman/sync/ -name *.files))
 
     # files extraction
     echo -e "\e[1m\e[34m::\e[0m\e[1m Extracting files...\e[0m"
@@ -431,11 +431,12 @@ syncdb() {
     # c code execution
     echo "$code" | sed "s:\$HOME:$HOME:g" > ~/.cache/extract.c
     gcc ~/.cache/extract.c -o ~/.cache/extract.exe
-    ~/.cache/extract.exe | sort > ~/.config/pacman.db
+    ~/.cache/extract.exe | sort > "$bashrc_home/pacman.db"
 
     # finishing
     $sudo rm -rf ~/.cache/extract.exe ~/.cache/extract.c ~/.cache/pacman.db.temp
-    echo -e "\e[1m\e[34m::\e[0m\e[1m Done - ~/.config/pacman.db - $(du -h ~/.config/pacman.db | awk '{print $1}')\e[0m"
+    local size=$(du -h "$bashrc_home/pacman.db" | awk '{print $1}')
+    echo -e "\e[1m\e[34m::\e[0m\e[1m Done - $bashrc_home/pacman.db - $size\e[0m"
   else
     error 'Not using pacman'
     return 1
