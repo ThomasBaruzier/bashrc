@@ -1156,7 +1156,7 @@ prompt2file() {
     fi
 
     [ -z "$filename" ] && continue
-    [[ ! "$next" =~ ^'```'$ ]] && code+=$'\n'"$next" && continue
+    [[ ! "$next" =~ ^[\t\ ]*'```'$ ]] && code+=$'\n'"$next" && continue
     echo -n "> $filename"
 
     if [ -f "$filename" ]; then
@@ -1181,5 +1181,9 @@ prompt2file() {
   done
 
   [ -z "$filenames" ] && echo 'No files found' && return 1
+  while [ -n "$2" ]; do
+    eval "$2" "${filenames[@]}"
+    shift
+  done
   return 0
 }
