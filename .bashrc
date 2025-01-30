@@ -182,8 +182,8 @@ pbrc() {
 # push pull config error
 pp_config() {
   if [ -z "$remote_server" ] || [ -z "$remote_destination" ]; then
-    echo -n 'Error: please configure \$remote_server and'
-    echo "\$remote_destination in '$bashrc_home/config.sh'"
+    echo -n 'Error: please configure `remote_server` and '
+    echo "\`remote_destination\` in '$bashrc_home/config.sh'"
     return 1
   fi
 
