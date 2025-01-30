@@ -598,14 +598,22 @@ fi
 # HISTORY #
 ###########
 
+filter_long_history() {
+  local history_output="$(history 1)"
+  read -r hist_num command_string <<< "$history_output"
+  if (( "${#command_string}" > 1000 )); then
+    history -d "$hist_num"
+  fi
+}
+
 HISTSIZE=100000 # in memory
 HISTFILESIZE=1000000 # in disk
 HISTCONTROL=ignoredups # ignore redundant and remove duplicates
-HISTIGNORE="reboot*:shutdown*:shush*"
+HISTIGNORE="$HISTIGNORE:reboot*:shutdown*:shush*"
 unset HISTTIMEFORMAT # no time format
 shopt -s cmdhist # no command separation
 shopt -s histappend # append to history instead of overwrite
-PROMPT_COMMAND="history -a; history -c; history -r; $PROMPT_COMMAND"
+PROMPT_COMMAND="filter_long_history; history -a; $PROMPT_COMMAND"
 
 #######
 # GIT #
@@ -1137,9 +1145,9 @@ prompt2file() {
     next="${lines[i]}"
 
     if [[
-      "$next" =~ ^'```'[a-z]*$ && (
-      "$line" =~ ^\#*\ ?\`([^\`]+)\`:?$ ||
-      "$line" =~ ^\#*\ ?\*+([^\*]+)\*+:?$ )
+      "$next" =~ ^[\t\ ]*'```'[a-z]*$ && (
+      "$line" =~ ^[\t#\ ]*\`([a-zA-Z0-9]+\.[a-z]+)\`[\t#\`\ :]*$ ||
+      "$line" =~ ^[\t#\ ]*([a-zA-Z0-9]+\.[a-z]+)[\t#\`\ :]*$ )
       && -n "${line//[^a-zA-Z0-9]}"
     ]]; then
       filename="${BASH_REMATCH[1]}"
