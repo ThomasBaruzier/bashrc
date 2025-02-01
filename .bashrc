@@ -25,10 +25,14 @@ for config in "${configs[@]}"; do source "$config"; done
 
 # system info
 platform=$(uname -o)
-if [ -x /bin/sudo ] && [ "$platform" != 'Android' ] && \
-  groups | grep -qE "\b(sudo|wheel)\b"; then
-  sudo=sudo
+if [ "$platform" != 'Android' ]; then
+  if [ -x /bin/sudo ] && groups | grep -qE "\b(sudo|wheel)\b"; then
+    sudo=sudo
+  else
+    unset sudo
+  fi
 else
+  USER=$(whoami)
   unset sudo
 fi
 
@@ -58,7 +62,7 @@ alias brc='nano ~/.bashrc; source ~/.bashrc'
 alias rel='[ -f ~/.profile ] && source ~/.profile; [ -f ~/.bashrc ] && source ~/.bashrc'
 
 # auto sudo
-alias sudo='sudo -EH'
+[ "$platform" = 'Android' ] || alias sudo='sudo -EH'
 alias reboot="$sudo reboot && exit"
 alias shutdown="$sudo shutdown now && exit"
 alias pacman="$sudo pacman"
@@ -461,7 +465,13 @@ own() {
       paths+=("${found_paths[@]}")
     done
   fi
-  $sudo chown "$USER" "${paths[@]}"
+
+  if [ "$sudo" = sudo ] || [ -x "$PREFIX/bin/sudo" ]; then
+    sudo chown "$USER:$USER" "${paths[@]}"
+  else
+    warn 'No root permissions. Trying anyways.'
+    chown "$USER:$USER" "${paths[@]}"
+  fi
 }
 
 # chmod helper
