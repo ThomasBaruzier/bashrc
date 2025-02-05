@@ -1156,9 +1156,9 @@ prompt2file() {
 
     if [[
       "$next" =~ ^[\t\ ]*'```'[a-z]*$ && (
-      "$line" =~ ^[\t#\*\ ]*\`([a-zA-Z0-9/-_]+\.[a-z]+)\`[\t#\*\`\ :]*$ ||
-      "$line" =~ ^[\t#\*\ ]*([a-zA-Z0-9/-_]+\.[a-z]+)[\t\*#\`\ :]*$ )
-      && -n "${line//[^a-zA-Z0-9]}"
+      "$line" =~ ^[\t#\*\ ]*\`([a-zA-Z0-9/-_\.]+)\`[\t\*\ :]*$ ||
+      "$line" =~ ^[\t#\`\ ]*\*+([a-zA-Z0-9/-_\.]+)\*+[\t\`\ :]*$
+      ) && -n "${line//[^a-zA-Z0-9]}"
     ]]; then
       filename="${BASH_REMATCH[1]}"
       unset code
@@ -1186,9 +1186,14 @@ prompt2file() {
     else echo " - ok"; fi
 
     filenames+=("$filename")
+    if [ -n "${filename//[^\/]}" ] && [ "${filename:0:1}" != '/' ]; then
+      mkdir -p "${filename%/*}"
+    fi
     echo "${code:1}" > "$filename"
     unset filename code
   done
+
+
 
   [ -z "$filenames" ] && echo 'No files found' && return 1
   while [ -n "$2" ]; do
