@@ -616,10 +616,10 @@ filter_long_history() {
   fi
 }
 
-HISTSIZE=100000 # in memory
-HISTFILESIZE=1000000 # in disk
-HISTCONTROL=ignoredups # ignore redundant and remove duplicates
-HISTIGNORE="$HISTIGNORE:reboot*:shutdown*:shush*"
+export HISTSIZE= # unlimited history
+export HISTFILESIZE= # unlimited history
+export HISTIGNORE="$HISTIGNORE:reboot*:shutdown*:shush*"
+export HISTFILE=~/.history # prevent bash_history reset
 unset HISTTIMEFORMAT # no time format
 shopt -s cmdhist # no command separation
 shopt -s histappend # append to history instead of overwrite
