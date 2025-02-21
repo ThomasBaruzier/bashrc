@@ -1193,8 +1193,6 @@ prompt2file() {
     unset filename code
   done
 
-
-
   [ -z "$filenames" ] && echo 'No files found' && return 1
   while [ -n "$2" ]; do
     eval "$2" "${filenames[@]}"
