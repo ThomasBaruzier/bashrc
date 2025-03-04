@@ -19,11 +19,12 @@ bashrc_home="$HOME/.config/bashrc"
 # bashrc config
 [ ! -f "$bashrc_home/config.sh" ] && \
 echo $'#\n# config.sh\n#\n\nps1_color=32\nskip_deps_check=true' \
-> "$bashrc_home/config.sh"
+  > "$bashrc_home/config.sh"
 mapfile -t configs < <(find "$bashrc_home" -name "*.sh")
 for config in "${configs[@]}"; do source "$config"; done
 
 # system info
+export USER="$(whoami)"
 platform=$(uname -o)
 if [ "$platform" != 'Android' ]; then
   if [ -x /bin/sudo ] && groups | grep -qE "\b(sudo|wheel)\b"; then
@@ -32,7 +33,6 @@ if [ "$platform" != 'Android' ]; then
     unset sudo
   fi
 else
-  USERNAME=$(whoami)
   unset sudo
 fi
 
@@ -467,10 +467,10 @@ own() {
   fi
 
   if [ "$sudo" = sudo ] || [ -x "$PREFIX/bin/sudo" ]; then
-    sudo chown "$USERNAME:$USERNAME" "${paths[@]}"
+    sudo chown "$USER:$USER" "${paths[@]}"
   else
     warn 'No root permissions. Trying anyways.'
-    chown "$USERNAME:$USERNAME" "${paths[@]}"
+    chown "$USER:$USER" "${paths[@]}"
   fi
 }
 
@@ -646,7 +646,7 @@ clone() {
     local url="https://github.com/$1/$2.git"
     shift
   else
-    error 'Syntax error. Usage: clone <url> or clone <username> <repository>'
+    error 'Syntax error. Usage: clone <url> or clone <USER> <repository>'
     return 1
   fi
 
@@ -1032,7 +1032,7 @@ burnsubs() {
   output='.'
   replace_subs=false
   sub_lang='en'
-  sub_name="$USERNAME's subtitles"
+  sub_name="$USER's subtitles"
 
   usage=$'\nUsage: burnsubs -i <input> -s <sub> -o <output> [-l <lang>] [-n <name>] [-r]\n'
   usage+=$'  -i, --input      Input video file\n'
