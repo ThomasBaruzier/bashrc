@@ -32,7 +32,7 @@ if [ "$platform" != 'Android' ]; then
     unset sudo
   fi
 else
-  USER=$(whoami)
+  USERNAME=$(whoami)
   unset sudo
 fi
 
@@ -467,10 +467,10 @@ own() {
   fi
 
   if [ "$sudo" = sudo ] || [ -x "$PREFIX/bin/sudo" ]; then
-    sudo chown "$USER:$USER" "${paths[@]}"
+    sudo chown "$USERNAME:$USERNAME" "${paths[@]}"
   else
     warn 'No root permissions. Trying anyways.'
-    chown "$USER:$USER" "${paths[@]}"
+    chown "$USERNAME:$USERNAME" "${paths[@]}"
   fi
 }
 
@@ -1032,7 +1032,7 @@ burnsubs() {
   output='.'
   replace_subs=false
   sub_lang='en'
-  sub_name="$USER's subtitles"
+  sub_name="$USERNAME's subtitles"
 
   usage=$'\nUsage: burnsubs -i <input> -s <sub> -o <output> [-l <lang>] [-n <name>] [-r]\n'
   usage+=$'  -i, --input      Input video file\n'
