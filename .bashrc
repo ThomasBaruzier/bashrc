@@ -170,7 +170,7 @@ fi
 [ -z "$ps1_color" ] && ps1_color='32'
 [ -z "$ps1_color_error" ] && ps1_color_error='31'
 [ -z "$ps1_color_root" ] && ps1_color_root='31'
-[ -z "$ps1_color_root_error" ] && ps1_color_root_error='37'
+[ -z "$ps1_color_root_error" ] && ps1_color_root_error='35'
 
 # PS1 format
 getPS1() {
