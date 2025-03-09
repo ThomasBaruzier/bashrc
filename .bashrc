@@ -12,29 +12,62 @@
 # beam cursor
 printf '\e[6 q'
 
-# bashrc home
-bashrc_home="$HOME/.config/bashrc"
-[ -d "$bashrc_home" ] || mkdir -p "$bashrc_home"
+# status functions
+error() { echo -e "\033[31mERROR: $@\033[0m"; }
+warn() { echo -e "\033[33mWARNING: $@\033[0m"; }
+success() { echo -e "\033[32mSUCCESS: $@\033[0m"; }
+info() { echo -e "\033[34mINFO: $@\033[0m"; }
 
-# bashrc config
-[ ! -f "$bashrc_home/config.sh" ] && \
-echo $'#\n# config.sh\n#\n\nps1_color=32\nskip_deps_check=true' \
-  > "$bashrc_home/config.sh"
-mapfile -t configs < <(find "$bashrc_home" -name "*.sh")
-for config in "${configs[@]}"; do source "$config"; done
+##################
+# IDENTIFICATION #
+##################
 
 # system info
 export USER="$(whoami)"
-platform=$(uname -o)
-if [ "$platform" != 'Android' ]; then
+export PLATFORM="$(uname -o)"
+export ARCH="$(uname -m)"
+
+# system type
+for i in /sys/class/power_supply/*; do
+  [ "${i: -1}" = '*' ] && \
+  export DEVICE=desktop || export DEVICE=laptop
+  break;
+done
+
+# detect chroot
+root_fs_id=$(ls -id /)
+[ "${root_fs_id//[^0-9]}" != 2 ] && export DEVICE=chroot
+
+# detect sudo
+if [ "$PLATFORM" != 'Android' ]; then
   if [ -x /bin/sudo ] && groups | grep -qE "\b(sudo|wheel)\b"; then
     sudo=sudo
   else
     unset sudo
   fi
 else
+  DEVICE=phone
   unset sudo
 fi
+
+##########
+# CONFIG #
+##########
+
+# bashrc home
+bashrc_home="$HOME/.config/bashrc"
+[ -d "$bashrc_home" ] || mkdir -p "$bashrc_home"
+
+# bashrc config
+[ ! -f "$bashrc_home/config.sh" ] && \
+echo $'#\n# config.sh\n#\n\nskip_deps_check=true\nremote_server=\nremote_destination' \
+  > "$bashrc_home/config.sh"
+mapfile -t configs < <(find "$bashrc_home" -name "*.sh")
+for config in "${configs[@]}"; do source "$config"; done
+
+###########
+# ALIASES #
+###########
 
 # path utilis
 alias ..='cd ..'
@@ -62,7 +95,7 @@ alias brc='nano ~/.bashrc; source ~/.bashrc'
 alias rel='[ -f ~/.profile ] && source ~/.profile; [ -f ~/.bashrc ] && source ~/.bashrc'
 
 # auto sudo
-[ "$platform" = 'Android' ] || alias sudo='sudo -EH'
+[ "$DEVICE" != 'phone' ] && alias sudo='sudo -EH'
 alias reboot="$sudo reboot && exit"
 alias shutdown="$sudo shutdown now && exit"
 alias pacman="$sudo pacman"
@@ -80,7 +113,30 @@ alias passwd="$sudo passwd"
 alias arch-chroot="$sudo arch-chroot"
 alias gparted="$sudo gparted"
 
-# colors
+# basic functions
+ca() { bc <<< "scale=5;$*"; }
+catw() { cat "$1" | fold -sw "$COLUMNS"; }
+
+###########
+# EXPORTS #
+###########
+
+# general purpose
+export EDITOR='nano'
+export TERM='xterm'
+export MAKEFLAGS="-j$(nproc)"
+export GOPATH="$HOME/.cache/go"
+export XDG_CONFIG_HOME="$HOME/.config"
+
+# path
+[ -d "$HOME/bin" ] && export PATH="$HOME/bin:$PATH"
+[ -d "$HOME/.local/bin" ] && export PATH="$HOME/.local/bin:$PATH"
+[ -d "$HOME/.cargo/bin" ] && export PATH="$HOME/.cargo/bin:$PATH"
+
+##########
+# COLORS #
+##########
+
 export \
 LESS_TERMCAP_mb=$'\E[01;31m' \
 LESS_TERMCAP_md=$'\E[01;38;5;74m' \
@@ -95,45 +151,48 @@ alias grep="grep --color=auto"
 alias tree="tree -C"
 alias dmesg='dmesg --color'
 
-# status functions
-error() { echo -e "\033[31mERROR: $@\033[0m"; }
-warn() { echo -e "\033[33mWARNING: $@\033[0m"; }
-success() { echo -e "\033[32mSUCCESS: $@\033[0m"; }
-info() { echo -e "\033[34mINFO: $@\033[0m"; }
+#######
+# PS1 #
+#######
 
-# basic functions
-ca() { bc <<< "scale=3;$*"; }
-pp() { cat "$1" | fold -sw "$COLUMNS"; }
+# PS1 default colors
+[ -z "$ps1_color" ] && ps1_color='32'
+[ -z "$ps1_color_error" ] && ps1_color_error='31'
+[ -z "$ps1_color_root" ] && ps1_color_root='31'
+[ -z "$ps1_color_root_error" ] && ps1_color_root_error='37'
 
-# fancy PS1
+# PS1 per-device colors
+if [ -z "$ps1_color" ]; then
+  if [ "$ARCH" = 'x86_64' ]; then
+    [ "$DEVICE" = 'desktop' ] && ps1_color='34'
+    [ "$DEVICE" = 'laptop' ] && ps1_color='35'
+  elif [ "$ARCH" = 'aarch64' ]; then
+    [ "$DEVICE" = 'desktop' ] && ps1_color='33'
+    [ "$DEVICE" = 'phone' ] && ps1_color='32'
+  fi
+fi
+
+# PS1 format
 getPS1() {
-  id=$(ls -id /)
-  [ -n "${ps1_color//[^0-9]}" ] && ps1_color="${ps1_color//[^0-9]}" || ps1_color=32
-  if [ "${id//[^0-9]}" != 2 ] && [ "$platform" = 'GNU/Linux' ]; then
-    if [ "${EUID}" = 0 ]; then # chroot root
-      PS1="\[\033[1;31m\]chroot\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${ps1_color}m\]\w\[\033[0m\] "
+  if [ "$DEVICE" = 'chroot' ] && [ "$PLATFORM" = 'GNU/Linux' ]; then
+    if [ "$EUID" = 0 ]; then   # chroot root
+      PS1="\[\033[31m\]chroot\$([[ \$? != 0 ]] && echo \"\[\033[${ps1_color_root_error}m\]\" || echo \"\[\033[0m\]\"):\[\033[${ps1_root_color}m\]\w\[\033[0m\] "
     else                       # chroot user
-      PS1="\[\033[1;34m\]chroot\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${ps1_color}m\]\w\[\033[0m\] "
+      PS1="\[\033[34m\]chroot\$([[ \$? != 0 ]] && echo \"\[\033[${ps1_color_error}m\]\" || echo \"\[\033[0m\]\"):\[\033[${ps1_color}m\]\w\[\033[0m\] "
     fi
   elif [ -z "$SSH_CLIENT" ]; then
-    if [ "${EUID}" = 0 ]; then # local root
-      PS1="\$([[ \$? != 0 ]] && echo \"\[\033[35m\]\" || echo \"\[\033[31m\]\")\w\[\033[0m\] "
+    if [ "$EUID" = 0 ]; then   # local root
+      PS1="\$([[ \$? != 0 ]] && echo \"\[\033[${ps1_color_root_error}m\]\" || echo \"\[\033[${ps1_root_color}m\]\")\w\[\033[0m\] "
     else                       # local user
-      PS1="\$([[ \$? != 0 ]] && echo \"\[\033[35m\]\" || echo \"\[\033[${ps1_color}m\]\")\w\[\033[0m\] "
+      PS1="\$([[ \$? != 0 ]] && echo \"\[\033[${ps1_color_error}m\]\" || echo \"\[\033[${ps1_color}m\]\")\w\[\033[0m\] "
     fi
-  elif [ "${EUID}" = 0 ]; then # ssh root
-    PS1="\[\033[1;31m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${ps1_color}m\]\w\[\033[0m\] "
+  elif [ "$EUID" = 0 ]; then   # ssh root
+    PS1="\[\033[31m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[${ps1_color_root_error}m\]\" || echo \"\[\033[0m\]\"):\[\033[${ps1_root_color}m\]\w\[\033[0m\] "
   else                         # ssh user
-    PS1="\[\033[1;34m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[0;31m\]\" || echo \"\[\033[0m\]\"):\[\033[1;${ps1_color}m\]\w\[\033[0m\] "
+    PS1="\[\033[34m\]\h\$([[ \$? != 0 ]] && echo \"\[\033[${ps1_color_error}m\]\" || echo \"\[\033[0m\]\"):\[\033[${ps1_color}m\]\w\[\033[0m\] "
   fi
-} && getPS1
-
-# path and configs
-[ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH"
-[ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH"
-[ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH"
-[ -f "$bashrc_home/addons.sh" ] && source "$bashrc_home/addons.sh"
-[ -f ~/.profile ] && ! grep -q '\.bashrc' ~/.profile && source ~/.profile
+}
+getPS1
 
 ########
 # SYNC #
@@ -183,22 +242,9 @@ pbrc() {
   echo
 }
 
-# push pull config error
-pp_config() {
-  if [ -z "$remote_server" ] || [ -z "$remote_destination" ]; then
-    echo -n 'Error: please configure `remote_server` and '
-    echo "\`remote_destination\` in '$bashrc_home/config.sh'"
-    return 1
-  fi
-
-  remote_port="${remote_server##*:}"
-  remote_address="${remote_server%:*}"
-  return 0
-}
-
 # push files to remote
 push() {
-  pp_config || return 1
+  push_pull_errors || return 1
   local files=() basenames=() x
   mkdir -p ~/.cache
 
@@ -231,14 +277,14 @@ push() {
 
 # pull files from remote
 pull() {
-  pp_config || return 1
+  push_pull_errors || return 1
   local path=() files=() dest='.'
   local latest="$remote_destination/latest-upload.txt"
 
   [ -d '/sdcard/Download/' ] && dest='/sdcard/Download/'
   [ -n "$1" ] && dest="$1"
   mapfile -t files < <(ssh "$remote_address" -p "$remote_port" cat "$latest")
-  [ -z "$files" ] && echo "Error: No recent uploads found." && return 1
+  [ -z "$files" ] && error "No recent uploads found." && return 1
 
   if [ "${files[0]}" = "pipe.txt" ]; then
     ssh "$remote_address" -p "$remote_port" cat "$remote_destination/pipe.txt"
@@ -248,6 +294,19 @@ pull() {
     done
     scp -r -P "$remote_port" "${path[@]}" "$dest"
   fi
+}
+
+# handle errors
+push_pull_errors() {
+  if [ -z "$remote_server" ] || [ -z "$remote_destination" ]; then
+    echo -n 'Error: please configure `remote_server` and '
+    echo "\`remote_destination\` in '$bashrc_home/config.sh'"
+    return 1
+  fi
+
+  remote_port="${remote_server##*:}"
+  remote_address="${remote_server%:*}"
+  return 0
 }
 
 ############
@@ -319,7 +378,7 @@ i() {
         # existing
         good+=("$package")
       else
-        if [ "$platform" = 'Android' ]; then
+        if [ "$DEVICE" = 'phone' ]; then
           search=$("$PREFIX"/libexec/termux/command-not-found "$package" 2>&1)
         else
           search=$(/usr/lib/command-not-found "$package" 2>&1)
@@ -476,13 +535,12 @@ own() {
 
 # chmod helper
 w() {
-  # make executable
   if [ -z "$1" ]; then
-    chmod +x *.sh *.exe 2>/dev/null
+    chmod +x -- *.sh *.exe 2>/dev/null
   elif [ "$1" = 'all' ]; then
-    chmod +x * 2>/dev/null
+    chmod +x -- * 2>/dev/null
   else
-    chmod +x "$@" 2>/dev/null
+    chmod +x -- "$@" 2>/dev/null
   fi
   ls
 }
@@ -497,11 +555,11 @@ pwd() {
 # get sizes
 sz() {
   if [ -n "$2" ]; then
-    $sudo du -bhsc "$@" | sort -h
+    $sudo du -bhsc -- "$@" | sort -h
   elif [ -n "$1" ]; then
-    $sudo du -bhs "$@" | awk '{print $1}'
+    $sudo du -bhs -- "$@" | awk '{print $1}'
   else
-    $sudo du -bhsc .[^.]* * 2>/dev/null | sort -h
+    $sudo du -bhsc -- .[^.]* * 2>/dev/null | sort -h
   fi
 }
 
@@ -516,7 +574,7 @@ clean() {
 
   if [ -n "$SSH_CLIENT" ]; then # ssh, server assumed
     $sudo rm -rf /tmp/* /var/cache/* ~/.cache/* ~/.local/share/Trash/ /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
-  elif [ "$platform" = Android ]; then # android, forbid sudo and system paths
+  elif [ "$DEVICE" = 'phone' ]; then # android, forbid sudo and system paths
     rm -rf ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
   else # assuming local desktop
     $sudo rm -rf /tmp/* /var/log/* /var/cache/* ~/.cache/* ~/.local/share/Trash/ /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
@@ -534,7 +592,7 @@ clean() {
   fi
   if yay -V >/dev/null 2>&1; then $sudo yay -Sc --noconfirm >/dev/null; fi
   if apt -v >/dev/null 2>&1; then
-    [ "$platform" = Android ] || $sudo mkdir -p /var/cache/apt/archives/partial
+    [ "$DEVICE" = 'phone' ] || $sudo mkdir -p /var/cache/apt/archives/partial
     $sudo apt autoremove -y >/dev/null 2>&1
   fi
   if journalctl --version >/dev/null 2>&1; then $sudo journalctl --vacuum-size=50M >/dev/null 2>&1; fi
@@ -546,7 +604,7 @@ clean() {
 disk() {
   # extract data
   unset info
-  [ "$platform" = 'Android' ] || local info=$(df -h | grep -E '/$')
+  [ "$DEVICE" = 'phone' ] || local info=$(df -h | grep -E '/$')
   [ -z "$info" ] && info=$(df -h | sort -hk2 | tail -n 1)
   [ -z "$info" ] && error 'Disk info not found' && return 1
   local total=$(awk '{print $2}' <<< "$info")
@@ -969,41 +1027,63 @@ ports() {
 ##########
 
 s() {
+  local attached detached selected
   local screens=$(screen -ls)
-  readarray -t screens <<< $(grep -Po '[0-9]+\..+(?=\(Detached\))' <<< "$screens")
-  [ -z "$screens" ] && error 'No detached screens found' && return 1
-  if [ -z "$1" ]; then
-    echo -e "\n\e[34mSCREENS:\e[0m"
-    for ((i=1; i < "${#screens[@]}+1"; i++)); do
-      screen="${screens[i-1]//\\/\/}"
-      echo "$i - ${screen/\./ - }"
+
+  readarray -t attached <<< $(grep -Po '[0-9]+\..+(?=\(Attached\))' <<< "$screens")
+  readarray -t detached <<< $(grep -Po '[0-9]+\..+(?=\(Detached\))' <<< "$screens")
+
+  [ -z "$attached$detached" ] && error "No screens found" && return 1
+
+  if [ -n "$attached" ]; then
+    echo $'\nAttached screens:'
+    for ((i=1; i <= "${#attached[@]}"; i++)); do
+      screen="${attached[i-1]//\\/\/}"
+      echo "$i - ${screen#*.}"
     done
-    read -p $'\nChoice (d=detach all, default=1): ' answer
-    [ -z "$answer" ] && answer=1
   else
-    echo
-    answer="$1"
+    unset attached
   fi
-  if [ "$answer" = d ]; then
-    mapfile -t to_detach < <(screen -ls | grep -F '(Attached)' | cut -f2)
-    if [ -n "$to_detach" ]; then
-      for screen in "${to_detach[@]}"; do
-        screen -d "$screen"
-      done
+
+  if [ -n "$detached" ]; then
+    echo $'\nDetached screens:'
+    for ((i=1; i <= "${#detached[@]}"; i++)); do
+      screen="${detached[i-1]//\\/\/}"
+      echo "$((i+${#attached[@]})) - ${screen#*.}"
+    done
+  else
+    unset detached
+  fi
+
+  read -p $'\nChoice (w=wipe, default=1): ' answer
+  [ -z "$answer" ] && answer=1
+
+  if [ "$answer" = w ]; then
+    screen -wipe
+  elif [[ "$answer" =~ ^[0-9]+$ ]]; then
+    if (( "$answer" <= "${#attached[@]}" )); then
+      selected="${attached[answer-1]}"
     else
-      echo $'Nothing found to detach.\n'
+      selected="${detached[answer-${#attached[@]}-1]}"
+    fi
+
+    local id=$(echo "$selected" | grep -Po '^[0-9]+')
+    if [ -n "$id" ]; then
+      screen -rd "$id"
+    else
+      error "Could not extract screen ID"
+      return 1
     fi
   else
-    local id=$(grep -Po '^[0-9]+' <<< "${screens[answer-1]}")
-    [ -z "$id" ] && echo -e 'No screens found' && return
-    screen -r "$id"
-    echo
+    error "Invalid choice"
+    return 1
   fi
+  echo
 }
 
-##############
-# TORRENTING #
-##############
+############
+# TORRENTS #
+############
 
 addtrackers() {
   local magnet_link="$1"
@@ -1034,12 +1114,12 @@ burnsubs() {
   sub_lang='en'
   sub_name="$USER's subtitles"
 
-  usage=$'\nUsage: burnsubs -i <input> -s <sub> -o <output> [-l <lang>] [-n <name>] [-r]\n'
+   usage=$'\nUsage: burnsubs -i <input> -s <sub> -o <output> [-l <lang>] [-n <name>] [-r]\n'
   usage+=$'  -i, --input      Input video file\n'
   usage+=$'  -s, --sub        Subtitle file to burn\n'
   usage+=$'  -o, --output     Output video file path\n'
-  usage+="  -l, --language   Subtitle language (default: $sub_lang)"$'\n'
-  usage+="  -n, --name       Subtitle name (default: $sub_name)"$'\n'
+  usage+=$"  -l, --language   Subtitle language (default: $sub_lang)"$'\n'
+  usage+=$"  -n, --name       Subtitle name (default: $sub_name)"$'\n'
   usage+=$'  -r, --replace    Replace all existing subtitles with the new one\n'
   usage+=$'  -h, --help       Display this help and exit\n'
 
