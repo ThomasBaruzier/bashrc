@@ -13,10 +13,10 @@
 printf '\e[6 q'
 
 # status functions
-error() { echo -e "\033[31mERROR: $@\033[0m"; }
-warn() { echo -e "\033[33mWARNING: $@\033[0m"; }
-success() { echo -e "\033[32mSUCCESS: $@\033[0m"; }
-info() { echo -e "\033[34mINFO: $@\033[0m"; }
+error() { echo $'\033[31mERROR: '"$*"$'\033[0m'; }
+warn() { echo $'\033[33mWARNING: '"$*"$'\033[0m'; }
+success() { echo $'\033[32mSUCCESS: '"$*"$'\033[0m'; }
+info() { echo $'\033[34mINFO: '"$*"$'\033[0m'; }
 
 ##################
 # IDENTIFICATION #
@@ -60,7 +60,7 @@ bashrc_home="$HOME/.config/bashrc"
 
 # bashrc config
 [ ! -f "$bashrc_home/config.sh" ] && \
-echo $'#\n# config.sh\n#\n\nskip_deps_check=true\nremote_server=\nremote_destination' \
+echo $'#\n# config.sh\n#\n\nskip_deps_check=true\nremote_server=\nremote_destination=' \
   > "$bashrc_home/config.sh"
 mapfile -t configs < <(find "$bashrc_home" -name "*.sh")
 for config in "${configs[@]}"; do source "$config"; done
@@ -155,12 +155,6 @@ alias dmesg='dmesg --color'
 # PS1 #
 #######
 
-# PS1 default colors
-[ -z "$ps1_color" ] && ps1_color='32'
-[ -z "$ps1_color_error" ] && ps1_color_error='31'
-[ -z "$ps1_color_root" ] && ps1_color_root='31'
-[ -z "$ps1_color_root_error" ] && ps1_color_root_error='37'
-
 # PS1 per-device colors
 if [ -z "$ps1_color" ]; then
   if [ "$ARCH" = 'x86_64' ]; then
@@ -171,6 +165,12 @@ if [ -z "$ps1_color" ]; then
     [ "$DEVICE" = 'phone' ] && ps1_color='32'
   fi
 fi
+
+# PS1 default colors
+[ -z "$ps1_color" ] && ps1_color='32'
+[ -z "$ps1_color_error" ] && ps1_color_error='31'
+[ -z "$ps1_color_root" ] && ps1_color_root='31'
+[ -z "$ps1_color_root_error" ] && ps1_color_root_error='37'
 
 # PS1 format
 getPS1() {
@@ -299,8 +299,7 @@ pull() {
 # handle errors
 push_pull_errors() {
   if [ -z "$remote_server" ] || [ -z "$remote_destination" ]; then
-    echo -n 'Error: please configure `remote_server` and '
-    echo "\`remote_destination\` in '$bashrc_home/config.sh'"
+    error 'No `remote_server`/`remote_destination` in '"'$bashrc_home/config.sh'"
     return 1
   fi
 
