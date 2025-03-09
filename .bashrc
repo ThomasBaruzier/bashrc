@@ -159,7 +159,7 @@ alias dmesg='dmesg --color'
 if [ -z "$ps1_color" ]; then
   if [ "$ARCH" = 'x86_64' ]; then
     [ "$DEVICE" = 'desktop' ] && ps1_color='36'
-    [ "$DEVICE" = 'laptop' ] && ps1_color='35'
+    [ "$DEVICE" = 'laptop' ] && ps1_color='32'
   elif [ "$ARCH" = 'aarch64' ]; then
     [ "$DEVICE" = 'desktop' ] && ps1_color='33'
     [ "$DEVICE" = 'phone' ] && ps1_color='32'
@@ -168,7 +168,7 @@ fi
 
 # PS1 default colors
 [ -z "$ps1_color" ] && ps1_color='32'
-[ -z "$ps1_color_error" ] && ps1_color_error='31'
+[ -z "$ps1_color_error" ] && ps1_color_error='35'
 [ -z "$ps1_color_root" ] && ps1_color_root='31'
 [ -z "$ps1_color_root_error" ] && ps1_color_root_error='35'
 
