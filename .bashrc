@@ -595,6 +595,7 @@ clean() {
     "$HOME/.mc"
     "$HOME/.gradle"
     "$HOME/.java"
+    "$HOME/.fltk"
   )
 
   ssh_paths=(
