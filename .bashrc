@@ -595,6 +595,12 @@ clean() {
     "$HOME/.gradle"
     "$HOME/.java"
     "$HOME/.fltk"
+    "$HOME/.openjfx"
+    "$HOME/.vscode-oss"
+    "$HOME/.steampid"
+    "$HOME/.steampath"
+    "$HOME/.nvidia-settings-rc"
+    "$HOME/.pulse-cookie"
   )
 
   ssh_paths=(
