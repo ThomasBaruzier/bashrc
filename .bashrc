@@ -585,7 +585,6 @@ clean() {
     "$HOME/.Xauthority"
     "$HOME/.local/share/Trash"
     "$HOME/.docker"
-    "$HOME/.rtorrent"
     "$HOME/.spotdl"
     "$HOME/.cargo"
     "$HOME/.npm"
