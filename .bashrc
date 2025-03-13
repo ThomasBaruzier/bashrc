@@ -565,22 +565,64 @@ sz() {
 # cleaning (opinionated)
 clean() {
   disk
-  mkdir -p ~/.cache-bkp
-  [ -d ~/.cache/torch ] && mv ~/.cache/torch ~/.cache-bkp
-  [ -d ~/.cache/torch_extensions ] && mv ~/.cache/torch_extensions ~/.cache-bkp
-  [ -d ~/.cache/huggingface ] && mv ~/.cache/huggingface ~/.cache-bkp
-  [ -d ~/.cache/jellyfin ] && mv ~/.cache/jellyfin ~/.cache-bkp
+
+  exceptions=(
+    "$HOME/.cache/torch"
+    "$HOME/.cache/torch_extensions"
+    "$HOME/.cache/huggingface"
+    "$HOME/.cache/jellyfin"
+    "/tmp/systemd*"
+  )
+
+  common_paths=(
+    "$HOME/.cache"
+    "$HOME/.bash_logout"
+    "$HOME/.viminfo"
+    "$HOME/.lesshst"
+    "$HOME/.wget-hsts"
+    "$HOME/.python_history"
+    "$HOME/.sudo_as_admin_successful"
+    "$HOME/.Xauthority"
+    "$HOME/.local/share/Trash"
+    "$HOME/.screen"
+    "$HOME/.docker"
+    "$HOME/.rtorrent"
+    "$HOME/.spotdl"
+    "$HOME/.npm"
+    "$HOME/.nv"
+    "$HOME/.pki"
+  )
+
+  ssh_paths=(
+    "/tmp"
+    "/var/cache"
+    "/var/lib/systemd/coredump"
+  )
+
+  desktop_paths=(
+    "/tmp"
+    "/var/log"
+    "/var/cache"
+    "/var/lib/systemd/coredump"
+  )
+
+  phone_paths=()
+
+  find_args=()
+  for exc in "${exceptions[@]}"; do
+    find_args+=(-not -path "$exc")
+  done
 
   if [ -n "$SSH_CLIENT" ]; then # ssh, server assumed
-    $sudo rm -rf /tmp/* /var/cache/* ~/.cache/* ~/.local/share/Trash/ /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
+    $sudo find "${ssh_paths[@]}" "${common_paths[@]}" "${find_args[@]}" -type f -delete 2>/dev/null
+    $sudo find "${ssh_paths[@]}" "${common_paths[@]}" "${find_args[@]}" -type d -empty -delete 2>/dev/null
   elif [ "$DEVICE" = 'phone' ]; then # android, forbid sudo and system paths
-    rm -rf ~/.cache/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
+    find "${phone_paths[@]}" "${common_paths[@]}" "${find_args[@]}" -type f -delete 2>/dev/null
+    find "${phone_paths[@]}" "${common_paths[@]}" "${find_args[@]}" -type d -empty -delete 2>/dev/null
   else # assuming local desktop
-    $sudo rm -rf /tmp/* /var/log/* /var/cache/* ~/.cache/* ~/.local/share/Trash/ /var/lib/systemd/coredump/* ~/.bash_logout ~/.viminfo ~/.lesshst ~/.wget-hsts ~/.python_history ~/.sudo_as_admin_successful ~/.Xauthority 2>/dev/null
+    $sudo find "${desktop_paths[@]}" "${common_paths[@]}" "${find_args[@]}" -type f -delete 2>/dev/null
+    $sudo find "${desktop_paths[@]}" "${common_paths[@]}" "${find_args[@]}" -type d -empty -delete 2>/dev/null
   fi
-
-  mv ~/.cache-bkp/* ~/.cache/ 2>/dev/null
-  $sudo rm -rf ~/.cache-bkp
 
   if pacman -V >/dev/null 2>&1; then
     $sudo mkdir -p /var/cache/pacman/pkg/
