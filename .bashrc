@@ -584,7 +584,6 @@ clean() {
     "$HOME/.sudo_as_admin_successful"
     "$HOME/.Xauthority"
     "$HOME/.local/share/Trash"
-    "$HOME/.screen"
     "$HOME/.docker"
     "$HOME/.rtorrent"
     "$HOME/.spotdl"
