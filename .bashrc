@@ -592,6 +592,9 @@ clean() {
     "$HOME/.npm"
     "$HOME/.nv"
     "$HOME/.pki"
+    "$HOME/.mc"
+    "$HOME/.gradle"
+    "$HOME/.java"
   )
 
   ssh_paths=(
