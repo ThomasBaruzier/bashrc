@@ -588,6 +588,7 @@ clean() {
     "$HOME/.docker"
     "$HOME/.rtorrent"
     "$HOME/.spotdl"
+    "$HOME/.cargo"
     "$HOME/.npm"
     "$HOME/.nv"
     "$HOME/.pki"
