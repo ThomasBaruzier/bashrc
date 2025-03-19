@@ -1159,53 +1159,77 @@ streaminfo() {
 }
 
 burnsubs() {
-  output='.'
-  replace_subs=false
-  sub_lang='en'
-  sub_name="$USER's subtitles"
+  local sub_lang='en'
+  local sub_name='Subtitles'
+  local replace_subs='false'
+  local cmd='' filename='' output='' files=()
 
-   usage=$'\nUsage: burnsubs -i <input> -s <sub> -o <output> [-l <lang>] [-n <name>] [-r]\n'
-  usage+=$'  -i, --input      Input video file\n'
-  usage+=$'  -s, --sub        Subtitle file to burn\n'
-  usage+=$'  -o, --output     Output video file path\n'
-  usage+=$"  -l, --language   Subtitle language (default: $sub_lang)"$'\n'
-  usage+=$"  -n, --name       Subtitle name (default: $sub_name)"$'\n'
+   usage=$'\nUsage: burnsubs [options] [file1] [file2] [output_file]\n'
+  usage+=$'  file1, file2     Video file and subtitle file (order doesn\'t matter)\n'
+  usage+=$'  output_file      Optional output video file path\n'
+  usage+=$'Options:\n'
   usage+=$'  -r, --replace    Replace all existing subtitles with the new one\n'
+  usage+=$'  -l, --lang       Set subtitle language (default: en)\n'
+  usage+=$'  -n, --name       Set subtitle track name (default: username\'s subtitles)\n'
   usage+=$'  -h, --help       Display this help and exit\n'
 
-  while [ "$#" -gt 0 ]; do
+  while [ "$#" != 0 ]; do
     case "$1" in
-      -i|--input) input="$2"; shift 2;;
-      -s|--sub) sub_file="$2"; shift 2;;
-      -o|--output) output="$2"; shift 2;;
-      -l|--language) sub_lang="$2"; shift 2;;
-      -n|--name) sub_name="$2"; shift 2;;
       -r|--replace) replace_subs=true; shift;;
-      -h|--help) echo "$usage"; return 1;;
-      *) echo "Invalid argument: $1"; echo "$usage"; return 1;;
+      -l|--lang) sub_lang="$2"; shift 2;;
+      -n|--name) sub_name="$2"; shift 2;;
+      -h|--help) echo "$usage"; return 0;;
+      -*) echo "Unknown option: $1"; echo "$usage"; return 1;;
+      *)
+        if [ -f "$1" ] || [ "$#" = 1 ]; then
+          files+=("$1")
+        else
+          echo "Error: File not found: $1"
+          return 1
+        fi
+        shift;;
     esac
   done
 
-  if [ -z "$input" ] || [ -z "$output" ] || [ -z "$sub_file" ]; then
-    echo
-    error 'Missing required arguments.'
+  if [ "${#files[@]}" -lt 2 ]; then
+    echo "Error: Need at least two files (video and subtitle)"
     echo "$usage"
     return 1
   fi
 
-  if [ -d "$output" ]; then
-    new_title=$(basename "$input" | sed -e 's/\.[^.]*$//')
-    output="$output/$new_title.${input##*.}"
+  file1="${files[0]}"
+  file2="${files[1]}"
+  size1=$(du -k "$file1")
+  size2=$(du -k "$file2")
+
+  if [ "${size1%%$'\t'*}" -lt "${size2%%$'\t'*}" ]; then
+    sub_file="$file1"
+    input="$file2"
+  else
+    input="$file1"
+    sub_file="$file2"
+  fi
+
+  [ "${#files[@]}" -gt 2 ] && output="${files[2]}"
+  [ -d "$output" ] && filename="$output/${input##*/}"
+  [ -z "$output" ] && filename="${input##*/}"
+
+  if [ -n "$filename" ]; then
+    ext="${filename##*.}"
+    name="${filename%.*}"
+    output="${name}-subbed.${ext}"
   fi
 
   [ "$sub_lang" = 'en' ] && sub_lang=eng
   [ "${input##*.}" = "mkv" ] && sub_codec='srt' || sub_codec='mov_text'
 
-  ffmpeg_command=(ffmpeg -loglevel warning -hide_banner -stats \
-    -sub_charenc UTF-8 -i "$input" -i "$sub_file" \
-    -map 0:v -map 0:a -c:v copy -c:a copy \
-    -metadata:s:s:0 language="$sub_lang" \
-    -metadata:s:s:0 handler_name="$sub_name")
+  ffmpeg_command=(
+    ffmpeg -loglevel warning -hide_banner -stats \
+      -i "$input" -sub_charenc UTF-8 -i "$sub_file" \
+      -map 0:v -map 0:a -c:v copy -c:a copy \
+      -metadata:s:s:0 language="$sub_lang" \
+      -metadata:s:s:0 handler_name="$sub_name"
+  )
 
   if [ "$replace_subs" = true ]; then
     ffmpeg_command+=(-map 1:s -c:s "$sub_codec")
@@ -1213,12 +1237,16 @@ burnsubs() {
     ffmpeg_command+=(-map 0:s? -map 1:s -c:s "$sub_codec")
   fi
 
+  echo $'\n\e[34mVideo:\e[0m   '"${input}"
+  echo $'\e[34mSubs:\e[0m    '"${sub_file}"
+  echo $'\e[34mOutput:\e[0m  '"${output}"
+  echo $'\n\e[35m'"${ffmpeg_command[@]}" "$output"$'\e[0m\n'
   "${ffmpeg_command[@]}" "$output"
 
   if [ "$?" = 0 ]; then
-    echo -e "\e[34mSubtitles successfully burnt! (Saved at: $output)\e[0m"
+    echo -e "\n\e[32mSubtitles successfully burnt at ${output}\e[0m\n"
   else
-    echo -e "\e[31mError burning subtitles into the video! ($input)\e[0m"
+    echo -e "\n\e[31mError burning subtitles into the video!\e[0m\n"
     return 1
   fi
 }
