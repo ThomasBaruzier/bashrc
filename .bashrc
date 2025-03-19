@@ -724,8 +724,8 @@ filter_long_history() {
   fi
 }
 
-export HISTSIZE= # unlimited history
-export HISTFILESIZE= # unlimited history
+export HISTSIZE=10000000 # unlimited history
+export HISTFILESIZE=10000000 # unlimited history
 export HISTIGNORE="$HISTIGNORE:reboot*:shutdown*:shush*"
 export HISTFILE=~/.history # prevent bash_history reset
 unset HISTTIMEFORMAT # no time format
