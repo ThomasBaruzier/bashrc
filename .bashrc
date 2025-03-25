@@ -89,8 +89,8 @@ alias l="$ls"; alias ls="$ls"; alias sl="$ls"
 alias c='clear'
 alias n='nano'
 alias md='mkdir'
-alias rf="$sudo rm -rf"
-alias rd="$sudo rm -d"
+alias rf="$sudo rm -rf --"
+alias rd="$sudo rm -d --"
 alias brc='nano ~/.bashrc; source ~/.bashrc'
 alias rel='[ -f ~/.profile ] && source ~/.profile; [ -f ~/.bashrc ] && source ~/.bashrc'
 
