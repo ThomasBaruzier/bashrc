@@ -719,7 +719,7 @@ fi
 filter_long_history() {
   local history_output="$(history 1)"
   read -r hist_num command_string <<< "$history_output"
-  if (( "${#command_string}" > 1000 )); then
+  if (( "${#command_string}" > 2000 )); then
     history -d "$hist_num"
   fi
 }
