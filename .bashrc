@@ -1105,12 +1105,10 @@ s() {
     unset detached
   fi
 
-  read -p $'\nChoice (w=wipe, default=1): ' answer
+  read -p $'\nChoice (default=1): ' answer || { echo; return 0; }
   [ -z "$answer" ] && answer=1
 
-  if [ "$answer" = w ]; then
-    screen -wipe
-  elif [[ "$answer" =~ ^[0-9]+$ ]]; then
+  if [[ "$answer" =~ ^[0-9]+$ ]]; then
     if (( "$answer" <= "${#attached[@]}" )); then
       selected="${attached[answer-1]}"
     else
