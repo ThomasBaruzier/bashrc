@@ -1135,7 +1135,7 @@ s() {
 
 addtrackers() {
   local magnet_link="$1"
-  local trackers=$(curl -s 'https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt')
+  local trackers=$(curl -s 'https://raw.githubusercontent.com/ngosang/trackerslist/refs/heads/master/trackers_all.txt')
   local new_trackers=$(sed -z 's:\n\n:\&tr=:g' <<< "${trackers%*}")
   local new_magnet_link="${magnet_link}&tr=${new_trackers}"
   echo $'\n'"$new_magnet_link"$'\n'
