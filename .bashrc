@@ -515,20 +515,16 @@ own() {
     error 'Invalid path'
     return 1
   elif [ -z "$1" ]; then
-    readarray -t paths <<< $($sudo find .)
+    paths=(".")
   else
-    local paths=()
-    for arg in "$@"; do
-      readarray -t found_paths <<< $($sudo find "$arg")
-      paths+=("${found_paths[@]}")
-    done
+    paths=("$@")
   fi
 
   if [ "$sudo" = sudo ] || [ -x "$PREFIX/bin/sudo" ]; then
-    sudo chown "$USER:$USER" "${paths[@]}"
+    sudo find "${paths[@]}" -exec chown "$USER:$USER" {} +
   else
     warn 'No root permissions. Trying anyways.'
-    chown "$USER:$USER" "${paths[@]}"
+    find "${paths[@]}" -exec chown "$USER:$USER" {} +
   fi
 }
 
