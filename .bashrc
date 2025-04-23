@@ -88,10 +88,11 @@ alias l="$ls"; alias ls="$ls"; alias sl="$ls"
 # basic aliases
 alias c='clear'
 alias n='nano'
-alias md='mkdir'
+alias md='mkdir --'
+alias mp='mkdir -p --'
 alias rf="$sudo rm -rf --"
 alias rd="$sudo rm -d --"
-alias brc='nano ~/.bashrc; source ~/.bashrc'
+alias brc='[ -f ~/.bashrc ] && nano ~/.bashrc && source ~/.bashrc'
 alias rel='[ -f ~/.bashrc ] && source ~/.bashrc'
 
 # auto sudo
@@ -207,7 +208,7 @@ ubrc() {
 
   if [ -s ~/.cache/bashrc/.bashrc ]; then
     mv ~/.cache/bashrc/.bashrc ~/.bashrc
-    success "~/.bashrc has been updated!"
+    success "The bashrc has been updated!"
   else
     error 'Failed to download the update'
   fi
@@ -216,15 +217,12 @@ ubrc() {
   echo
 }
 
-# update bashrc also on root
-alias uubrc="ubrc && sudo su -c 'bash -i -c \"source /root/.bashrc && ubrc\"'"
-
 # upload bashrc
 pbrc() {
   echo
   local commit_name
   read -p 'Commit name: ' commit_name
-  [ -z "$commit_name" ] && commit_name='update'
+  [ -z "$commit_name" ] && commit_name='other: automatic commit'
   echo
 
   mkdir -p ~/.cache
@@ -236,7 +234,7 @@ pbrc() {
   git -C ~/.cache/bashrc push
 
   if [ "$?" = 0 ]; then
-    success '~/.bashrc has been pushed!'
+    success 'The bashrc has been pushed!'
   else
     error 'Failed to push ~/.bashrc'
   fi
@@ -244,6 +242,45 @@ pbrc() {
   rm -rf ~/.cache/bashrc
   echo
 }
+
+# update private config
+uconf() {
+  echo
+  mkdir -p ~/.config/bashrc/
+  clone 'git@github.com:ThomasBaruzier/bashrc-private.git' ~/.config/bashrc/
+
+  if [ "$?" = 0 ]; then
+    success "Private bashrc config has been updated!"
+  else
+    error 'Failed to download the update'
+  fi
+  echo
+}
+
+# upload private conf
+pconf() {
+  echo
+  local commit_name
+  read -p 'Commit name: ' commit_name
+  [ -z "$commit_name" ] && commit_name='other: automatic commit'
+  echo
+
+  mkdir -p ~/.config/bashrc/
+  clone 'git@github.com:ThomasBaruzier/bashrc-private.git' ~/.config/bashrc/
+  git -C ~/.config/bashrc add ~/.config/bashrc/*.sh
+  git -C ~/.config/bashrc commit -m "$commit_name"
+  git -C ~/.config/bashrc push
+
+  if [ "$?" = 0 ]; then
+    success 'The bashrc has been pushed!'
+  else
+    error 'Failed to push ~/.bashrc'
+  fi
+  echo
+}
+
+# update everything
+alias uu="ubrc && uconf && sudo su -c 'bash -i -c \"source /root/.bashrc && ubrc && uconf\"'"
 
 # push files to remote
 push() {
@@ -765,8 +802,8 @@ clone() {
     local path="${url##*/}"; path="${path%.git}"
   fi
 
-  local name="${path##*/}"
   local depth=1
+  local name="${path%/}"; name="${name##*/}"
 
   # Parse CLI arguments
   while [[ "$#" -gt 0 ]]; do
