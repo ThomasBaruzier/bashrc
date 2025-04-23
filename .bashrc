@@ -12,6 +12,9 @@
 # beam cursor
 printf '\e[6 q'
 
+# zoxide
+[ -f /bin/zoxide ] && alias cd='z' && eval "$(zoxide init bash)"
+
 # status functions
 error() { echo $'\033[31mERROR: '"$*"$'\033[0m'; }
 warn() { echo $'\033[33mWARNING: '"$*"$'\033[0m'; }
