@@ -92,7 +92,7 @@ alias md='mkdir'
 alias rf="$sudo rm -rf --"
 alias rd="$sudo rm -d --"
 alias brc='nano ~/.bashrc; source ~/.bashrc'
-alias rel='[ -f ~/.profile ] && source ~/.profile; [ -f ~/.bashrc ] && source ~/.bashrc'
+alias rel='[ -f ~/.bashrc ] && source ~/.bashrc'
 
 # auto sudo
 [ "$DEVICE" != 'phone' ] && alias sudo='sudo -EH'
