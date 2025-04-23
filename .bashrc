@@ -82,12 +82,6 @@ alias .......='cd ../../../../../..'
 alias ........='cd ../../../../../../..'
 alias .........='cd ../../../../../../../..'
 
-# ls aliases
-ls="ls --color=auto --group-directories-first -t -X"
-alias la='ls -A --color=auto --group-directories-first -t -X'
-alias ll='ls -la --color=auto --group-directories-first -t -X'
-alias l="$ls"; alias ls="$ls"; alias sl="$ls"
-
 # basic aliases
 alias c='clear'
 alias n='nano'
@@ -95,8 +89,21 @@ alias md='mkdir --'
 alias mp='mkdir -p --'
 alias rf="$sudo rm -rf --"
 alias rd="$sudo rm -d --"
+
+# ls aliases
+ls="ls --color=auto --group-directories-first -t -X"
+alias la='ls -A --color=auto --group-directories-first -t -X'
+alias ll='ls -la --color=auto --group-directories-first -t -X'
+alias l="$ls"; alias ls="$ls"; alias sl="$ls"
+
+# reload utils
 alias brc='[ -f ~/.bashrc ] && nano ~/.bashrc && source ~/.bashrc'
 alias rel='[ -f ~/.bashrc ] && source ~/.bashrc'
+
+# diff utils
+alias cdiff='git diff --no-index --word-diff --word-diff-regex=.'
+alias wdiff='git diff --no-index --word-diff'
+alias ldiff='git diff --no-index'
 
 # auto sudo
 [ "$DEVICE" != 'phone' ] && alias sudo='sudo -EH'
@@ -116,6 +123,7 @@ alias visudo="$sudo EDITOR=nano visudo"
 alias passwd="$sudo passwd"
 alias arch-chroot="$sudo arch-chroot"
 alias gparted="$sudo gparted"
+alias btop='$sudo btop --utf-force'
 
 # basic functions
 ca() { bc <<< "scale=5;$*"; }
@@ -1293,6 +1301,24 @@ burnsubs() {
 # CODING #
 ##########
 
+mk() {
+  [ ! -f [Mm]akefile ] && echo 'No Makefile' && return 1
+  make fclean
+  make -j || return 1
+  make clean || true
+}
+
+fclean() {
+  find . -regex '.*\.\(o\|a\|gcno\|gcda\)' -o -name 'a.out' -delete
+  [ -f [Mm]akefile ] && make fclean
+}
+
+alias b='mk && echo --- && eval "$(find . -maxdepth 1 -executable -type f | head -n1)"'
+alias val='mk && echo --- && valgrind --track-origins=yes $(find . -maxdepth 1 -executable -type f | head -n 1)'
+
+alias cts='sed "s:\s*$::g" -i '
+alias venv='source .venv/bin/activate'
+
 snm() {
   [ -n "$1" ] && bins=("$@") || bins=($(find -maxdepth 1 -executable -type f))
   [ -z "$bins" ] && error 'No binary found' && return 1
@@ -1303,6 +1329,21 @@ snm() {
     printf '%s\n' "${libs[@]}" || echo 'No libraries found'
   done
   echo
+}
+
+ascii() {
+  echo '32. '"'"' '"'"'	44. ,	56. 8	68. D	80. P	92. \	104. h	116. t'
+  echo '33. !	45. -	57. 9	69. E	81. Q	93. ]	105. i	117. u'
+  echo '34. "	46. .	58. :	70. F	82. R	94. ^	106. j	118. v'
+  echo '35. #	47. /	59. ;	71. G	83. S	95. _	107. k	119. w'
+  echo '36. $	48. 0	60. <	72. H	84. T	96. `	108. l	120. x'
+  echo '37. %	49. 1	61. =	73. I	85. U	97. a	109. m	121. y'
+  echo '38. &	50. 2	62. >	74. J	86. V	98. b	110. n	122. z'
+  echo '39. '"'"'	51. 3	63. ?	75. K	87. W	99. c	111. o	123. {'
+  echo '40. (	52. 4	64. @	76. L	88. X	100. d	112. p	124. |'
+  echo '41. )	53. 5	65. A	77. M	89. Y	101. e	113. q	125. }'
+  echo '42. *	54. 6	66. B	78. N	90. Z	102. f	114. r	126. ~'
+  echo '43. +	55. 7	67. C	79. O	91. [	103. g	115. s'
 }
 
 alias f2p='file2prompt'
