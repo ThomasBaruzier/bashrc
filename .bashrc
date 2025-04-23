@@ -169,7 +169,9 @@ alias dmesg='dmesg --color'
 
 # PS1 per-device colors
 if [ -z "$ps1_color" ]; then
-  if [ "$ARCH" = 'x86_64' ]; then
+  if [ -n "$SSH_CLIENT" ]; then
+    ps1_color='32'
+  elif [ "$ARCH" = 'x86_64' ]; then
     [ "$DEVICE" = 'desktop' ] && ps1_color='36'
     [ "$DEVICE" = 'laptop' ] && ps1_color='32'
   elif [ "$ARCH" = 'aarch64' ]; then
