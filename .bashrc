@@ -216,6 +216,9 @@ ubrc() {
   echo
 }
 
+# update bashrc also on root
+alias uubrc="ubrc && sudo su -c 'bash -i -c \"source /root/.bashrc && ubrc\"'"
+
 # upload bashrc
 pbrc() {
   echo
