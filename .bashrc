@@ -208,7 +208,7 @@ ubrc() {
 
   if [ -s ~/.cache/bashrc/.bashrc ]; then
     mv ~/.cache/bashrc/.bashrc ~/.bashrc
-    success "The bashrc has been updated!"
+    success 'The bashrc has been updated!'
   else
     error 'Failed to download the update'
   fi
@@ -247,10 +247,11 @@ pbrc() {
 uconf() {
   echo
   mkdir -p ~/.config/bashrc/
+  [ ! -d ~/.config/bashrc/.git ] && rm -rf ~/.config/bashrc/
   clone 'git@github.com:ThomasBaruzier/bashrc-private.git' ~/.config/bashrc/
 
   if [ "$?" = 0 ]; then
-    success "Private bashrc config has been updated!"
+    success 'Private bashrc config has been updated!'
   else
     error 'Failed to download the update'
   fi
