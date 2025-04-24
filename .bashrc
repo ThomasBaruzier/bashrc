@@ -622,6 +622,7 @@ clean() {
     "$HOME/.cache/huggingface"
     "$HOME/.cache/jellyfin"
     "/tmp/systemd*"
+    "/var/log/journal"
   )
 
   common_paths=(
