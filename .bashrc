@@ -295,7 +295,7 @@ pconf() {
 }
 
 # update everything
-alias uu="ubrc && uconf && sudo su -c 'bash -i -c \"source /root/.bashrc && ubrc && uconf\"'"
+alias uu="ubrc && uconf && [ -n '$sudo' ] && sudo su -c 'bash -i -c \"source /root/.bashrc && ubrc && uconf\"'"
 
 # push files to remote
 push() {
