@@ -1446,22 +1446,23 @@ prompt2file() {
 # ANDROID #
 ###########
 
-adbsync() {
-  pull_jobs=4
-  pull_batch_size=16
-  hash_jobs=8
-  hash_batch_size=64
-  out="$1"
-
+check_adb() {
   if ! adb devices | grep -qE $'^[0-9a-f]{8,}\t+device$'; then
     error "No ADB device detected"
     return 1
   fi
+}
+
+adbsync() {
+  local out="$1"
+  local jobs="${2:-4}"
 
   while [ "${out: -1}" = '/' ]; do out="${out%/}"; done
-  [ -z "$out" ] && echo "Usage: adbsync <folder>" && return 1
+  [ -z "$out" ] && echo "Usage: adbsync <folder> [jobs]" && return 1
+
+  check_adb || return 1
   mkdir -p "$out"
-  tmp=$(mktemp -d)
+  local tmp=$(mktemp -d)
 
   info "Generating file lists..."
   find "$out" -type f | sed "s:^$out/::" | sort -u > "$tmp/local"
@@ -1476,39 +1477,47 @@ adbsync() {
 
   comm -23 "$tmp/android" "$tmp/local" > "$tmp/to_pull"
   comm -13 "$tmp/android" "$tmp/local" > "$tmp/to_delete"
-  rm -f "$tmp/android" "$tmp/local"
+  rm -f "$tmp/android" "$tmp/local" pull_errors.txt
 
   info "Files to pull: $(wc -l < $tmp/to_pull)"
-  > pull_errors.txt
-
-  xargs -d '\n' -r -P "$pull_jobs" -n "$pull_batch_size" sh -c '
-    for file in "$0" "$@"; do
-      input="/sdcard/$file"
-      output="'"$out"'/$file"
-      mkdir -p "$(dirname "$output")"
-      adb pull "$input" "$output" 2>/dev/null
-      if [ "$?" = 0 ]; then
-        echo -e "\033[35m${input::'"${COLUMNS:-80}"'}\033[0m"
-      else
-        echo -e "\033[31m$input\033[0m"
-        flock -x pull_errors.txt echo "$input" >> pull_errors.txt
-        rm -f "$output"
-      fi
-    done
-  ' < "$tmp/to_pull"
+  xargs -d '\n' -r -P "$jobs" -n 1 bash -c '
+    input="/sdcard/$2"
+    output="$1/$2"
+    outdir="$(dirname "$output")"
+    [ ! -d "$outdir" ] && mkdir -p "$outdir"
+    adb pull "$input" "$output" 2>/dev/null
+    if [ "$?" = 0 ]; then
+      echo -e "\033[35m${input::'"${COLUMNS:-80}"'}\033[0m"
+    else
+      echo -e "\033[31m$input\033[0m"
+      flock -x pull_errors.txt echo "$input" >> pull_errors.txt
+      rm -f "$output"
+    fi
+  ' bash "$out" < "$tmp/to_pull"
 
   info "Files to delete: $(wc -l < $tmp/to_delete)"
   sed "s:^:$out/:g" "$tmp/to_delete" | xargs -d '\n' -r rm -v --
   rm -df "$tmp/to_pull" "$tmp/to_delete" "$tmp/"
+  info 'Sync finished.'
+}
 
+adbcheck() {
+  local jobs=8
+  local batch_size=64
+  local out="$1"
+
+  while [ "${out: -1}" = '/' ]; do out="${out%/}"; done
+  [ -z "$out" ] && echo "Usage: adbcheck <folder>" && return 1
+
+  check_adb || return 1
   info "Comparing hashes..."
-  > hash_mismatch.txt
+  rm -f hash_mismatch.txt
 
   find "$out" -type f | sort -u | sed "s:^$out/::g" |
-  xargs -d '\n' -r -P "$hash_jobs" -n "$hash_batch_size" sh -c '
+  xargs -d '\n' -r -P "$jobs" -n "$batch_size" bash -c '
     pc_files=() android_files=()
-    for file in "$0" "$@"; do
-      pc_files+=("'"$out"'/$file")
+    for file in "${@:2}"; do
+      pc_files+=("$1/$file")
       android_files+=("/sdcard/$file")
     done
 
@@ -1521,19 +1530,24 @@ adbsync() {
     file_count="${#pc_files[@]}"
     for ((i=0; i < "$file_count"; i++)); do
       pc_hash="${pc_hashes[i]%% *}"
+      pc_file="${pc_hashes[i]#*  }"
       android_hash="${android_hashes[i]%% *}"
-      file="${pc_hashes[i]#*  }"
+      android_file="${android_hashes[i]#*  }"
       if [ "$pc_hash" = "$android_hash" ] && [ -n "$pc_hash" ]; then
-        to_log="$file"
+        to_log="$pc_file"
       else
-        echo -e "\033[31m$file\033[0m"
-        flock -x hash_mismatch.txt echo "$file" >> hash_mismatch.txt
-        rm -f "$file"
+        rm -f "$pc_file"
+        if adb pull "$android_file" "$pc_file" 2>/dev/null; then
+          echo -e "\033[32m$pc_file\033[0m"
+        else
+          echo -e "\033[31m$pc_file\033[0m"
+          flock -x hash_mismatch.txt echo "$pc_file" >> hash_mismatch.txt
+        fi
       fi
     done
+
     [ -n "$to_log" ] && \
     echo -e "\033[35m${to_log::'"${COLUMNS:-80}"'}\033[0m"
-  '
-
-  info 'All done.'
+  ' bash "$out"
+  info 'Hash verification finished.'
 }
