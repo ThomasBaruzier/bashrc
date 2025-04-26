@@ -13,7 +13,7 @@
 printf '\e[6 q'
 
 # zoxide
-[ -f /bin/zoxide ] && alias cd='z' && eval "$(zoxide init bash)"
+[ -f "$PREFIX/bin/zoxide" ] && alias cd='z' && eval "$(zoxide init bash)"
 
 # status functions
 unset -f error warn success info
