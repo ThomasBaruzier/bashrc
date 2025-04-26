@@ -1457,6 +1457,8 @@ adbsync() {
   local out="$1"
   local jobs="${2:-4}"
 
+  [ "${out::1}" = '/' ] && \
+  echo 'Please only use relative paths' && return 1
   while [ "${out: -1}" = '/' ]; do out="${out%/}"; done
   [ -z "$out" ] && echo "Usage: adbsync <folder> [jobs]" && return 1
 
@@ -1497,6 +1499,7 @@ adbsync() {
 
   info "Files to delete: $(wc -l < $tmp/to_delete)"
   sed "s:^:$out/:g" "$tmp/to_delete" | xargs -d '\n' -r rm -v --
+  find "$out" -type d -empty -delete
   rm -df "$tmp/to_pull" "$tmp/to_delete" "$tmp/"
   info 'Sync finished.'
 }
