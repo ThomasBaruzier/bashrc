@@ -1487,7 +1487,7 @@ adbsync() {
     output="$1/$2"
     outdir="$(dirname "$output")"
     [ ! -d "$outdir" ] && mkdir -p "$outdir"
-    adb pull "$input" "$output" 2>/dev/null
+    adb pull -a "$input" "$output" 2>/dev/null
     if [ "$?" = 0 ]; then
       echo -e "\033[35m${input::'"${COLUMNS:-80}"'}\033[0m"
     else
@@ -1540,7 +1540,7 @@ adbcheck() {
         to_log="$pc_file"
       else
         rm -f "$pc_file"
-        if adb pull "$android_file" "$pc_file" 2>/dev/null; then
+        if adb pull -a "$android_file" "$pc_file" 2>/dev/null; then
           echo -e "\033[32m$pc_file\033[0m"
         else
           echo -e "\033[31m$pc_file\033[0m"
