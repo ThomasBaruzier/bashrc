@@ -1404,48 +1404,63 @@ prompt2file() {
   mapfile -t lines < "$1"
   count="${#lines[@]}"
 
-  for ((i=1; i < count; i++)); do
-    line="${lines[i-1]}"
-    next="${lines[i]}"
+  p2f_write() {
+    [ -z "$filename" ] && return 0
 
-    if [[
-      "$next" =~ ^[\t\ ]*'```'[a-z]*$ && (
-      "$line" =~ ^[\t#\*\ ]*\`([a-zA-Z0-9'()'\/\_\.\-]+)\`[\t\*\ :]*$ ||
-      "$line" =~ ^[\t#\`\ ]*\*+([a-zA-Z0-9'()'\/\_\.\-]+)\*+[\t\`\ :]*$
-      ) && -n "${line//[^a-zA-Z0-9]}"
-    ]]; then
-      filename="${BASH_REMATCH[1]}"
-      unset code
-      continue
-    fi
+    local final_code="${code%\`\`\`*}"
 
-    [ -z "$filename" ] && continue
-    [[ ! "$next" =~ ^[\t\ ]*'```'$ ]] && code+=$'\n'"$next" && continue
     echo -n "> $filename"
-
+    local do_write=true
     if [ -f "$filename" ]; then
-      if [ "$overwrite" == 'all' ]; then
-        echo ' - ow'
-      else
+      if [ "$overwrite" != 'all' ]; then
         read -p $' - ow? \e[s' -N1 answer
         if [ "$answer" == a ]; then
           overwrite='all'
           echo
         elif [ "$answer" != y ]; then
           echo -n $'\e[un\n'
-          unset filename code
-          continue
+          do_write=false
         else echo; fi
+      else
+        echo ' - ow'
       fi
     else echo " - ok"; fi
+
+    if ! "$do_write"; then
+      return 1
+    fi
 
     filenames+=("$filename")
     if [ -n "${filename//[^\/]}" ] && [ "${filename:0:1}" != '/' ]; then
       mkdir -p "${filename%/*}"
     fi
-    echo "${code:1}" > "$filename"
-    unset filename code
+    printf '%s' "$final_code" > "$filename"
+    return 0
+  }
+
+  for ((i=0; i < count; i++)); do
+    line="${lines[i]}"
+    next_line="${lines[i+1]:-}"
+
+    if [[
+      "$next_line" =~ ^[\t\ ]*'```'[a-z]*$ &&
+      "$line" =~ ^[\t#\*\ ]*\`([^\`]+)\`[\t\*\ :]*$ &&
+      -n "${line//[^a-zA-Z0-9]}"
+    ]]; then
+      p2f_write
+
+      filename="${BASH_REMATCH[1]}"
+      unset code
+      i=$((i + 1))
+      continue
+    fi
+
+    if [ -n "$filename" ]; then
+      code+="$line"$'\n'
+    fi
   done
+
+  p2f_write
 
   [ -z "$filenames" ] && echo 'No files found' && return 1
   while [ -n "$2" ]; do
