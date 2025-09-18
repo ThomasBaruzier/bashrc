@@ -494,7 +494,7 @@ i() {
   if [ -n "$packages" ]; then
     echo
     [ "$installer" = 'pacman' ] && $sudo pacman -Sy "${packages[@]}"
-    [ "$installer" = 'apt' ] && $sudo apt update && $sudo apt install "${packages[@]}"
+    [ "$installer" = 'apt' ] && $sudo apt update && $sudo apt install "${packages[@]}" --no-install-recommends --no-install-suggests
     echo
   fi
 }
