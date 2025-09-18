@@ -1403,14 +1403,17 @@ file2prompt() {
 
 alias p2f='prompt2file'
 prompt2file() {
-  unset code filename filenames overwrite
+  unset code filename filenames overwrite is_markdown
   mapfile -t lines < "$1"
   count="${#lines[@]}"
 
   p2f_write() {
     [ -z "$filename" ] && return 0
 
-    local final_code="${code%\`\`\`*}"
+    local final_code="$code"
+    if [[ "${is_markdown:-}" == true ]]; then
+      final_code="${code%\`\`\`*}"
+    fi
 
     echo -n "> $filename"
     local do_write=true
@@ -1446,20 +1449,37 @@ prompt2file() {
     next_line="${lines[i+1]:-}"
 
     if [[
-      "$next_line" =~ ^[\t\ ]*'```'[a-z]*$ &&
       "$line" =~ ^[\t#\*\ ]*\`([^\`]+)\`[\t\*\ :]*$ &&
       -n "${line//[^a-zA-Z0-9]}"
     ]]; then
-      p2f_write
+      local potential_filename="${BASH_REMATCH[1]}"
+      if [[ "$next_line" =~ ^[\t\ ]*'```'([a-zA-Z]*)[\t\ ]*$ ]]; then
+        p2f_write
 
-      filename="${BASH_REMATCH[1]}"
-      unset code
-      i=$((i + 1))
-      continue
+        filename="$potential_filename"
+        local lang="${BASH_REMATCH[1]:-}"
+        unset code
+
+        if [[
+          "$filename" == *.md || "$filename" == "README" ||
+          "$lang" == "md" || "$lang" == "markdown"
+        ]]; then is_markdown=true; else is_markdown=false; fi
+
+        i=$((i + 1))
+        continue
+      fi
     fi
 
     if [ -n "$filename" ]; then
-      code+="$line"$'\n'
+      if [[
+        "${is_markdown:-false}" == false &&
+        "$line" =~ ^[\t\ ]*'```'[\t\ ]*$
+      ]]; then
+        p2f_write
+        unset filename code is_markdown
+      else
+        code+="$line"$'\n'
+      fi
     fi
   done
 
