@@ -1363,7 +1363,6 @@ alias f2p='file2prompt'
 file2prompt() {
   readarray -t files < <(
     find "$@" -type f \( \
-      -path '*/.*' -o \
       -path '*/node_modules/*' -o \
       -path '*/venv/*' -o \
       -name 'package-lock.json' \
@@ -1374,6 +1373,7 @@ file2prompt() {
       grep -e ' text/' \
         -e ' application/javascript' \
         -e ' application/json' \
+        -e ' application/x-ndjson' \
       | cut -d':' -f1
   )
 
