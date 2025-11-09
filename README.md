@@ -134,7 +134,7 @@ These are tools to assist with version control, compiling, debugging, and genera
 
 The `clone <url | user repo> [options]` command is a wrapper for `git clone` that defaults to a shallow clone (`--depth 1`) for faster downloads. It supports a simplified syntax for GitHub repositories, such as `clone user repo`. If the destination directory already exists, it will attempt to run `git pull` to get updates instead of failing.
 
-### Interactive git helper: g
+### Interactive git helper: g (deprecated)
 
 The `g` command launches an interactive, menu-driven helper for performing the most common git operations. It provides a simple text-based interface for initializing a repository, committing changes, pushing, pulling, amending commits, and more, which is useful when you don't want to remember the specific git commands.
 
