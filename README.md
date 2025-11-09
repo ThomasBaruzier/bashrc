@@ -1,12 +1,14 @@
 # Bashrc
 
 ### ⚠️ WARNING ⚠️
-#### This bashrc is opinionated and not made for a wide audience. While it provides a handful of powerful utilities, it is highly recommended to read this document fully before use. As an example, I use `rf` for `sudo rm -rf --`, so please be careful. I do not provide any warranty for any damage this program may cause.
+
+#### This bashrc is opinionated and not made for a wide audience. While it provides a handful of powerful utilities, it is highly recommended to read this document fully before use, especially the [Summary of dangerous features](#summary-of-dangerous-features) section. As an example, I use `rf` for `sudo rm -rf --`, so please be careful. I do not provide any warranty for any damage this program may cause.
 
 ## Sections
 
 * [Installation](#installation)
 * [Configuration](#configuration)
+* [Summary of dangerous features](#summary-of-dangerous-features)
 * [Basic utilities](#basic-utilities)
 * [File and directory management](#file-and-directory-management)
 * [System and package management](#system-and-package-management)
@@ -35,6 +37,19 @@ On its first run, the bashrc will automatically create a configuration file at `
 * `skip_deps_check`: Set this to `true` to disable the automatic dependency check that runs when the shell starts.
 * `remote_server`: Defines the server address for the `push` and `pull` commands. The format should be `user@hostname` or `user@hostname:port`.
 * `remote_destination`: Specifies the absolute path on the remote server where files transferred with the `push` command will be stored.
+
+## Summary of dangerous features
+
+Here is a non exhaustive list of features you may want to be aware of before anything tragic happens.
+
+* `rf <path>`: This is an alias for `sudo rm -rf --`. It will forcefully and recursively delete files and directories with root privileges.
+* `clean`: This script deletes numerous files and directories from your system, including package manager caches and temporary files. It could potentially remove data you intended to keep.
+* `adbsync <folder>`: This command synchronizes a local folder from an android device. It will delete any files in the local destination directory that do not exist on the source device.
+* `own [path...]`: This command uses `sudo` to change the ownership of files. Running this on system directories will likely break your system.
+* `ren <pattern> <replacement> -r`: This batch rename command, especially with the recursive `-r` flag, can incorrectly rename thousands of files if the pattern is poorly constructed. It can also overwrite data if multiple files are renamed to have the same filename.
+* `g`: This interactive git helper has destructive options. The `d` option deletes the last commit, and the `P` option force-pushes.
+* Automatic `sudo`: Many system management commands like `pacman`, `apt`, and `mount` are automatically prefixed with `sudo`.
+* `reboot` and `shutdown`: These aliases immediately restart or shut down the system. Unsaved work could be lost.
 
 ## Basic utilities
 
