@@ -124,7 +124,7 @@ alias visudo="$sudo EDITOR=nano visudo"
 alias passwd="$sudo passwd"
 alias arch-chroot="$sudo arch-chroot"
 alias gparted="$sudo gparted"
-alias btop='$sudo btop --utf-force'
+alias btop='$sudo btop --force-utf'
 
 # basic functions
 ca() { bc <<< "scale=5;$*"; }
@@ -1316,14 +1316,9 @@ burnsubs() {
 
 mk() {
   [ ! -f [Mm]akefile ] && echo 'No Makefile' && return 1
-  make fclean
+  make fclean || make clean
   make -j || return 1
   make clean || true
-}
-
-fclean() {
-  find . -regex '.*\.\(o\|a\|gcno\|gcda\)' -o -name 'a.out' -delete
-  [ -f [Mm]akefile ] && make fclean
 }
 
 alias b='mk && echo --- && eval "$(find . -maxdepth 1 -executable -type f | head -n1)"'
@@ -1363,6 +1358,7 @@ alias f2p='file2prompt'
 file2prompt() {
   readarray -t files < <(
     find "$@" -type f \( \
+      -path '*/.git/*' -o \
       -path '*/node_modules/*' -o \
       -path '*/venv/*' -o \
       -name 'package-lock.json' \
