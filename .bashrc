@@ -1361,7 +1361,8 @@ file2prompt() {
       -path '*/.git/*' -o \
       -path '*/node_modules/*' -o \
       -path '*/venv/*' -o \
-      -name 'package-lock.json' \
+      -name 'package-lock.json' -o \
+      -name 'LICENSE' \
     \) -prune -o -print
   )
   readarray -t files < <(
