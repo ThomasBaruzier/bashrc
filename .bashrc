@@ -1371,7 +1371,8 @@ file2prompt() {
         -e ' application/javascript' \
         -e ' application/json' \
         -e ' application/x-ndjson' \
-      | cut -d':' -f1
+      | cut -d':' -f1 \
+      | awk '!seen[$0]++'
   )
 
   [ -z "${files}" ] && echo "No files found" >&2 && return 1
