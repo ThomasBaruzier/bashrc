@@ -17,10 +17,10 @@ printf '\e[6 q'
 
 # status functions
 unset -f error warn success info
-error() { echo $'\033[31mERROR: '"$*"$'\033[0m'; }
-warn() { echo $'\033[33mWARNING: '"$*"$'\033[0m'; }
-success() { echo $'\033[32mSUCCESS: '"$*"$'\033[0m'; }
-info() { echo $'\033[34mINFO: '"$*"$'\033[0m'; }
+error() { echo $'\033[31mERROR: '"$*"$'\033[0m' >&2; }
+warn() { echo $'\033[33mWARNING: '"$*"$'\033[0m' >&2; }
+success() { echo $'\033[32mSUCCESS: '"$*"$'\033[0m' >&2; }
+info() { echo $'\033[34mINFO: '"$*"$'\033[0m' >&2; }
 
 ##################
 # IDENTIFICATION #
@@ -1359,6 +1359,7 @@ file2prompt() {
   readarray -t files < <(
     find "$@" -type f \( \
       -path '*/.git/*' -o \
+      -path '*/dist/*' -o \
       -path '*/node_modules/*' -o \
       -path '*/venv/*' -o \
       -name 'package-lock.json' -o \
@@ -1375,6 +1376,9 @@ file2prompt() {
       | cut -d':' -f1 \
       | awk '!seen[$0]++'
   )
+  info 'v Files included v'
+  wc -l "${files[@]}" | sort -n >&2
+  info '^ Files included ^'
 
   [ -z "${files}" ] && echo "No files found" >&2 && return 1
   unset prompt
