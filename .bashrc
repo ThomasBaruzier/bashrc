@@ -1361,6 +1361,7 @@ file2prompt() {
     find "$@" -type f \( \
       -path '*/.git/*' -o \
       -path '*/dist/*' -o \
+      -path '*/.next/*' -o \
       -path '*/node_modules/*' -o \
       -path '*/venv/*' -o \
       -name 'package-lock.json' -o \
