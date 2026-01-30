@@ -1121,8 +1121,10 @@ ports() {
     match(addr, /:[0-9]+$/)
     port = substr(addr, RSTART + 1)
     ip = substr(addr, 1, RSTART - 1)
+
     gsub(/[\[\]]/, "", ip)
-    sub(/%.*/, "", ip)  # Strip interface suffix (%wlan0, %eth0, etc.)
+    sub(/%.*/, "", ip)
+    sub(/^::ffff:/, "", ip)
 
     type = (ip ~ /:/ || ip == "*") ? "IPv6" : "IPv4"
     if (ip == "0.0.0.0" || ip == "::" || ip == "*" || ip == "") ip = "*"
@@ -1139,9 +1141,10 @@ ports() {
 
   [[ -z "$entries" ]] && { echo "No opened ports"; return; }
 
-  printf "\e[35m%-18s %-6s %-5s %-7s %s\e[0m\n" "SERVICE" "TYPE" "NODE" "PORT" "IP"
   while IFS=$'\t' read -r s t n i p; do
-    if [[ $i == "127.0.0.1" || $i == "::1" ]]; then
+    if [[ $i == 127.* || $i == ::1 || $i == 192.168.* || $i == 10.* ||
+          $i == 172.1[6-9].* || $i == 172.2[0-9].* || $i == 172.3[0-1].* ||
+          $i == 169.254.* || $i == fe80* || $i == fd* || $i == fc* ]]; then
       printf "%-18s %-6s %-5s %-7s %s\n" "$s" "$t" "$n" "$p" "$i"
     else
       printf "\e[31m%-18s %-6s %-5s %-7s %s\e[0m\n" "$s" "$t" "$n" "$p" "$i"
