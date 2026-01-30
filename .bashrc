@@ -1139,12 +1139,12 @@ ports() {
 
   [[ -z "$entries" ]] && { echo "No opened ports"; return; }
 
-  printf "\e[35m%-18s %-6s %-5s %-14s %-5s\e[0m\n" "SERVICE" "TYPE" "NODE" "IP" "PORT"
+  printf "\e[35m%-18s %-6s %-5s %-7s %s\e[0m\n" "SERVICE" "TYPE" "NODE" "PORT" "IP"
   while IFS=$'\t' read -r s t n i p; do
     if [[ $i == "127.0.0.1" || $i == "::1" ]]; then
-      printf "%-18s %-6s %-5s %-14s %-5s\n" "$s" "$t" "$n" "$i" "$p"
+      printf "%-18s %-6s %-5s %-7s %s\n" "$s" "$t" "$n" "$p" "$i"
     else
-      printf "\e[31m%-18s %-6s %-5s %-14s %-5s\e[0m\n" "$s" "$t" "$n" "$i" "$p"
+      printf "\e[31m%-18s %-6s %-5s %-7s %s\e[0m\n" "$s" "$t" "$n" "$p" "$i"
     fi
   done <<< "$entries"
 }
