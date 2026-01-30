@@ -1115,23 +1115,38 @@ myip() {
 }
 
 ports() {
-  local entries=$(
-    $sudo lsof -i -P -n | \
-      grep LISTEN | \
-      awk '{print $1"\t"$5"\t"$8"\t"$9}' 2>/dev/null | \
-      sed -E 's:\:([0-9]+)$:|\1:g' | \
-      sort -un -t'|' -k2 | \
-      tr '|' ':'
-  )
+  local entries
+  entries=$($sudo ss -tulnpH | awk '{
+    addr = $5
+    match(addr, /:[0-9]+$/)
+    port = substr(addr, RSTART + 1)
+    ip = substr(addr, 1, RSTART - 1)
+    gsub(/[\[\]]/, "", ip)
+    sub(/%.*/, "", ip)  # Strip interface suffix (%wlan0, %eth0, etc.)
 
-  if [ -n "$entries" ]; then
-    printf "\e[35m%-20s %-6s %-6s %-15s\e[0m\n" "SERVICE" "TYPE" "NODE" "IP:PORT"
-    echo "$entries" | while read -r service type node address; do
-      printf "%-20s %-6s %-6s %-15s\n" "$service" "$type" "$node" "$address"
-    done
-  else
-    echo "No opened ports"
-  fi
+    type = (ip ~ /:/ || ip == "*") ? "IPv6" : "IPv4"
+    if (ip == "0.0.0.0" || ip == "::" || ip == "*" || ip == "") ip = "*"
+
+    svc = "-"
+    if (match($0, /"[^"]+"/)) {
+      svc = substr($0, RSTART + 1, RLENGTH - 2)
+      if (length(svc) > 9) svc = substr(svc, 1, 9)
+    }
+
+    proto = toupper($1); sub(/6$/, "", proto)
+    print svc, type, proto, ip, port
+  }' OFS='\t' | sort -t$'\t' -k5,5n -u)
+
+  [[ -z "$entries" ]] && { echo "No opened ports"; return; }
+
+  printf "\e[35m%-18s %-6s %-5s %-14s %-5s\e[0m\n" "SERVICE" "TYPE" "NODE" "IP" "PORT"
+  while IFS=$'\t' read -r s t n i p; do
+    if [[ $i == "127.0.0.1" || $i == "::1" ]]; then
+      printf "%-18s %-6s %-5s %-14s %-5s\n" "$s" "$t" "$n" "$i" "$p"
+    else
+      printf "\e[31m%-18s %-6s %-5s %-14s %-5s\e[0m\n" "$s" "$t" "$n" "$i" "$p"
+    fi
+  done <<< "$entries"
 }
 
 ##########
@@ -1379,7 +1394,7 @@ file2prompt() {
       | awk '!seen[$0]++'
   )
   info 'v Files included v'
-  wc -l "${files[@]}" | sort -n >&2
+  wc -lc "${files[@]}" | sort -n >&2
   info '^ Files included ^'
 
   [ -z "${files}" ] && echo "No files found" >&2 && return 1
