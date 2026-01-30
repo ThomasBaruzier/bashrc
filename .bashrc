@@ -12,6 +12,9 @@
 # beam cursor
 printf '\e[6 q'
 
+# strict security
+umask 077
+
 # zoxide
 [ -f "$PREFIX/bin/zoxide" ] && alias cd='z' && eval "$(zoxide init bash)"
 
@@ -801,31 +804,38 @@ PROMPT_COMMAND="filter_long_history; history -a; $PROMPT_COMMAND"
 
 clone() {
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: clone (<url> | <user> <repo>) [folder] [options]'
-    echo '  -d, --depth: Depth of clone'
+    echo 'Usage: clone (<url> | <user/repo> | <user> <repo>) [dest] [options]'
+    echo '  -d, --depth: Depth of clone (0 for full)'
     echo '  -b, --branch: Branch to clone'
     echo '  -c, --commit: Commit to checkout'
-    echo 'Desc: Clone github repos'
     echo 'Default: --depth 1'
     return
   fi
 
+  local url
+
+  # Parse URL or user/repo format
   if [[ "$1" =~ ^(https?://|git@) ]]; then
-    local url="$1"
-  elif [ -n "$2" ]; then
-    local url="https://github.com/$1/$2.git"
+    url="$1"
     shift
+  elif [[ "$1" = */* ]]; then
+    url="git@github.com:$1.git"
+    shift
+  elif [ -n "$2" ] && [ "${2:0:1}" != '-' ]; then
+    url="git@github.com:$1/$2.git"
+    shift; shift
   else
-    error 'Syntax error. Usage: clone <url> or clone <USER> <repository>'
+    error 'Syntax error. Usage: clone <url> | <user/repo> | <user> <repo>'
     return 1
   fi
 
-  shift
+  # Parse optional destination path
+  local path
   if [ -n "$1" ] && [ "${1:0:1}" != '-' ]; then
-    local path="$1"
+    path="$1"
     shift
   else
-    local path="${url##*/}"; path="${path%.git}"
+    path="${url##*/}"; path="${path%.git}"
   fi
 
   local depth=1
@@ -833,23 +843,22 @@ clone() {
 
   # Parse CLI arguments
   while [[ "$#" -gt 0 ]]; do
-    local key="$1"
-    local arg="$2"
     case "$1" in
-      -d|--depth) depth="$arg"; shift; shift;;
-      -b|--branch) local branch="$arg"; shift; shift;;
-      -c|--commit) local commit="$arg"; depth=full; shift; shift;;
-      *) error "Unknown option: $key"; return 1;;
+      -d|--depth) depth="$2"; shift; shift;;
+      -b|--branch) local branch="$2"; shift; shift;;
+      -c|--commit) local commit="$2"; depth=0; shift; shift;;
+      *) error "Unknown option: $1"; return 1;;
     esac
   done
 
+  # Build git clone options
   [ -n "$branch" ] && branch="--branch $branch"
-  [ "$depth" = full ] && unset depth || depth="--depth $depth"
+  [ "$depth" != 0 ] && depth="--depth $depth" || unset depth
 
   if [ -d "$path" ]; then
     # Check for updates if already cloned
     if [ -n "$commit" ]; then
-      [ $(git -C "$path" rev-parse HEAD) = "$commit" ] && return
+      [ "$(git -C "$path" rev-parse HEAD)" = "$commit" ] && return
     fi
 
     local output=$(git -C "$path" pull 2>&1)
@@ -876,18 +885,10 @@ clone() {
       return 1
     fi
 
-    success "Cloned $name"
-  fi
+    # Checkout specific commit if requested
+    [ -n "$commit" ] && git -C "$path" checkout "$commit" --quiet
 
-  # Checkout commit if instructed to
-  if [ -n "$commit" ]; then
-    local output=$(git -C "$path" checkout "$commit" 2>&1)
-    if [ "$?" != 0 ]; then
-      echo "$output"
-      error "Failed to checked out commit $commit for $name"
-      return 1
-    fi
-    success "Checked out commit $commit"
+    success "Cloned $name"
   fi
 }
 
