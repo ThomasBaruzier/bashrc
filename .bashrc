@@ -804,7 +804,7 @@ PROMPT_COMMAND="filter_long_history; history -a; $PROMPT_COMMAND"
 
 clone() {
   if [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-    echo 'Usage: clone (<url> | <user/repo> | <user> <repo>) [dest] [options]'
+    echo 'Usage: clone (<url> | <user> <repo> | <path>) [dest] [options]'
     echo '  -d, --depth: Depth of clone (0 for full)'
     echo '  -b, --branch: Branch to clone'
     echo '  -c, --commit: Commit to checkout'
@@ -812,56 +812,13 @@ clone() {
     return
   fi
 
-  local url
+  local url path name depth=1 branch commit output
 
-  # Parse URL or user/repo format
-  if [[ "$1" =~ ^(https?://|git@) ]]; then
-    url="$1"
-    shift
-  elif [[ "$1" = */* ]]; then
-    url="git@github.com:$1.git"
-    shift
-  elif [ -n "$2" ] && [ "${2:0:1}" != '-' ]; then
-    url="git@github.com:$1/$2.git"
-    shift; shift
-  else
-    error 'Syntax error. Usage: clone <url> | <user/repo> | <user> <repo>'
-    return 1
-  fi
-
-  # Parse optional destination path
-  local path
-  if [ -n "$1" ] && [ "${1:0:1}" != '-' ]; then
+  # Pull mode: existing directory
+  if [ -d "$1" ]; then
     path="$1"
-    shift
-  else
-    path="${url##*/}"; path="${path%.git}"
-  fi
-
-  local depth=1
-  local name="${path%/}"; name="${name##*/}"
-
-  # Parse CLI arguments
-  while [[ "$#" -gt 0 ]]; do
-    case "$1" in
-      -d|--depth) depth="$2"; shift; shift;;
-      -b|--branch) local branch="$2"; shift; shift;;
-      -c|--commit) local commit="$2"; depth=0; shift; shift;;
-      *) error "Unknown option: $1"; return 1;;
-    esac
-  done
-
-  # Build git clone options
-  [ -n "$branch" ] && branch="--branch $branch"
-  [ "$depth" != 0 ] && depth="--depth $depth" || unset depth
-
-  if [ -d "$path" ]; then
-    # Check for updates if already cloned
-    if [ -n "$commit" ]; then
-      [ "$(git -C "$path" rev-parse HEAD)" = "$commit" ] && return
-    fi
-
-    local output=$(git -C "$path" pull 2>&1)
+    name="${path%/}"; name="${name##*/}"
+    output=$(git -C "$path" pull 2>&1)
 
     if [ "$?" != 0 ]; then
       echo "$output"
@@ -869,25 +826,71 @@ clone() {
       return 1
     fi
 
-    if [[ "$output" = *"Already up to date."* ]]; then
-      info "No update available for $name"
-      return
-    else
-      success "Updated $name"
-    fi
+    [[ "$output" = *"Already up to date."* ]] \
+    && info "No update for $name" || success "Updated $name"
+    return
+  fi
+
+  # Parse URL or user/repo format
+  if [[ "$1" =~ ^(https?://|git@) ]]; then
+    url="$1"; shift
+  elif [[ "$1" = */* ]]; then
+    url="git@github.com:$1.git"; shift
+  elif [ -n "$2" ] && [ "${2:0:1}" != '-' ]; then
+    url="git@github.com:$1/$2.git"; shift; shift
   else
-    # Clone if not already done
-    info "Cloning $name..."
-    git clone "$url" "$path" $depth $branch
+    error 'Invalid syntax. See: clone --help'
+    return 1
+  fi
+
+  # Parse destination
+  if [ -n "$1" ] && [ "${1:0:1}" != '-' ]; then
+    path="$1"; shift
+  else
+    path="${url##*/}"; path="${path%.git}"
+  fi
+
+  name="${path%/}"; name="${name##*/}"
+
+  # Parse options
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -d|--depth) depth="$2"; shift; shift;;
+      -b|--branch) branch="$2"; shift; shift;;
+      -c|--commit) commit="$2"; depth=0; shift; shift;;
+      *) error "Unknown option: $1"; return 1;;
+    esac
+  done
+
+  if [ -d "$path" ]; then
+    # Update existing clone
+    [ -n "$commit" ] && \
+    [ "$(git -C "$path" rev-parse HEAD)" = "$commit" ] && return
+
+    output=$(git -C "$path" pull 2>&1)
 
     if [ "$?" != 0 ]; then
+      echo "$output"
+      error "Failed to pull $name"
+      return 1
+    fi
+
+    [[ "$output" = *"Already up to date."* ]] \
+    && info "No update for $name" || success "Updated $name"
+  else
+    # Clone new repo
+    info "Cloning $name..."
+
+    local opts=""
+    [ "$depth" != 0 ] && opts="--depth $depth"
+    [ -n "$branch" ] && opts="$opts --branch $branch"
+
+    if ! git clone "$url" "$path" $opts; then
       error "Failed to clone $name"
       return 1
     fi
 
-    # Checkout specific commit if requested
     [ -n "$commit" ] && git -C "$path" checkout "$commit" --quiet
-
     success "Cloned $name"
   fi
 }
