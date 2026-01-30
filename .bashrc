@@ -814,25 +814,10 @@ clone() {
 
   local url path name depth=1 branch commit output
 
-  # Pull mode: existing directory
+  # Parse input: existing directory or URL/repo
   if [ -d "$1" ]; then
-    path="$1"
-    name="${path%/}"; name="${name##*/}"
-    output=$(git -C "$path" pull 2>&1)
-
-    if [ "$?" != 0 ]; then
-      echo "$output"
-      error "Failed to pull $name"
-      return 1
-    fi
-
-    [[ "$output" = *"Already up to date."* ]] \
-    && info "No update for $name" || success "Updated $name"
-    return
-  fi
-
-  # Parse URL or user/repo format
-  if [[ "$1" =~ ^(https?://|git@) ]]; then
+    path="$1"; shift
+  elif [[ "$1" =~ ^(https?://|git@) ]]; then
     url="$1"; shift
   elif [[ "$1" = */* ]]; then
     url="git@github.com:$1.git"; shift
@@ -843,11 +828,13 @@ clone() {
     return 1
   fi
 
-  # Parse destination
-  if [ -n "$1" ] && [ "${1:0:1}" != '-' ]; then
-    path="$1"; shift
-  else
-    path="${url##*/}"; path="${path%.git}"
+  # Parse destination (only for clone mode)
+  if [ -n "$url" ]; then
+    if [ -n "$1" ] && [ "${1:0:1}" != '-' ]; then
+      path="$1"; shift
+    else
+      path="${url##*/}"; path="${path%.git}"
+    fi
   fi
 
   name="${path%/}"; name="${name##*/}"
@@ -863,9 +850,9 @@ clone() {
   done
 
   if [ -d "$path" ]; then
-    # Update existing clone
-    [ -n "$commit" ] && \
-    [ "$(git -C "$path" rev-parse HEAD)" = "$commit" ] && return
+    # Pull existing repo
+    [ -n "$commit" ] \
+    && [ "$(git -C "$path" rev-parse HEAD)" = "$commit" ] && return
 
     output=$(git -C "$path" pull 2>&1)
 
