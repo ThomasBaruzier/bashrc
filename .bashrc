@@ -1488,8 +1488,8 @@ prompt2file() {
         unset code
 
         if [[
-          "$$filename" == *.md || "$$filename" == "README" ||
-          "$$lang" == "md" || "$$lang" == "markdown"
+          "$filename" == *.md || "$filename" == "README" ||
+          "$lang" == "md" || "$lang" == "markdown"
         ]]; then is_markdown=true; else is_markdown=false; fi
 
         i=$((i + 1))
@@ -1500,7 +1500,7 @@ prompt2file() {
     if [ -n "$filename" ]; then
       if [[
         "${is_markdown:-false}" == false &&
-        "$$line" =~ ^[\t\ ]*'```'[\t\ ]*$$
+        "$line" =~ ^[\t\ ]*'```'[\t\ ]*$
       ]]; then
         p2f_write
         unset filename code is_markdown
