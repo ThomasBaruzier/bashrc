@@ -1418,7 +1418,20 @@ file2prompt() {
 alias p2f='prompt2file'
 prompt2file() {
   unset code filename filenames overwrite is_markdown
-  mapfile -t lines < "$1"
+  local input_file="$1"
+  local temp_file=""
+
+  if [ -z "$input_file" ]; then
+    temp_file=$(mktemp)
+    ${EDITOR:-nano} "$temp_file"
+    input_file="$temp_file"
+  fi
+
+  if [ ! -f "$input_file" ]; then
+    return 1
+  fi
+
+  mapfile -t lines < "$input_file"
   count="${#lines[@]}"
 
   p2f_write() {
@@ -1475,8 +1488,8 @@ prompt2file() {
         unset code
 
         if [[
-          "$filename" == *.md || "$filename" == "README" ||
-          "$lang" == "md" || "$lang" == "markdown"
+          "$$filename" == *.md || "$$filename" == "README" ||
+          "$$lang" == "md" || "$$lang" == "markdown"
         ]]; then is_markdown=true; else is_markdown=false; fi
 
         i=$((i + 1))
@@ -1487,7 +1500,7 @@ prompt2file() {
     if [ -n "$filename" ]; then
       if [[
         "${is_markdown:-false}" == false &&
-        "$line" =~ ^[\t\ ]*'```'[\t\ ]*$
+        "$$line" =~ ^[\t\ ]*'```'[\t\ ]*$$
       ]]; then
         p2f_write
         unset filename code is_markdown
@@ -1498,6 +1511,8 @@ prompt2file() {
   done
 
   p2f_write
+
+  [ -n "$temp_file" ] && rm -f "$temp_file"
 
   [ -z "$filenames" ] && echo 'No files found' && return 1
   while [ -n "$2" ]; do
