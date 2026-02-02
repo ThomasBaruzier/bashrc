@@ -1100,7 +1100,7 @@ myip() {
   private_ips="${private_ips// / - }"
   echo -e "PRIVATE: \e[34m$private_ips\e[0m"
 
-  public_ip=$(curl -s --max-time 5 ip.3z.ee 2>/dev/null)
+  public_ip=$(curl -s -4 --max-time 5 ip.3z.ee 2>/dev/null)
   grep -qE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' <<< "$public_ip" || public_ip='Request Failed'
   echo -e "PUBLIC:  \e[34m$public_ip\e[0m"
 }
