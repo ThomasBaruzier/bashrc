@@ -383,6 +383,7 @@ push_pull_errors() {
 # helper for i()
 update_packages() {
   if yay -V &>/dev/null; then
+    rm -rf ~/.cache/yay/
     update_cmds=("yay -Syu --devel")
   elif pacman -V &>/dev/null; then
     update_cmds=("$sudo pacman -Syu")
