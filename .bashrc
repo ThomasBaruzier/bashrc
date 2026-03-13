@@ -1375,6 +1375,7 @@ file2prompt() {
       -path '*/node_modules/*' -o \
       -path '*/venv/*' -o \
       -name 'package-lock.json' -o \
+      -name 'pnpm-lock.yaml' -o \
       -name 'uv.lock' -o \
       -name 'LICENSE' \
     \) -prune -o -print
