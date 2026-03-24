@@ -1386,6 +1386,7 @@ file2prompt() {
         -e ' application/javascript' \
         -e ' application/json' \
         -e ' application/x-ndjson' \
+        -e ' application/x-wine-extension-ini' \
       | cut -d':' -f1 \
       | awk '!seen[$0]++'
   )
