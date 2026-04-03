@@ -1367,54 +1367,211 @@ ascii() {
 
 alias f2p='file2prompt'
 file2prompt() {
-  readarray -t files < <(
-    find "$@" -type f \( \
-      -path '*/.git/*' -o \
-      -path '*/dist/*' -o \
-      -path '*/.next/*' -o \
-      -path '*/node_modules/*' -o \
-      -path '*/venv/*' -o \
-      -name 'package-lock.json' -o \
-      -name 'pnpm-lock.yaml' -o \
-      -name 'uv.lock' -o \
-      -name 'LICENSE' \
-    \) -prune -o -print
-  )
-  readarray -t files < <(
-    file --mime-type "${files[@]}" | \
-      grep -e ' text/' \
-        -e ' application/javascript' \
-        -e ' application/json' \
-        -e ' application/x-ndjson' \
-        -e ' application/x-wine-extension-ini' \
-      | cut -d':' -f1 \
-      | awk '!seen[$0]++'
-  )
-  info 'v Files included v'
-  wc -lc "${files[@]}" | sort -n >&2
-  info '^ Files included ^'
+  local files=() prompt="" result="" copy_cmd=""
+  local path dp ext content block
 
-  [ -z "${files}" ] && echo "No files found" >&2 && return 1
-  unset prompt
+  readarray -t files < <(
+    find "$@" \
+      -type d \( \
+        -name '.git' -o \
+        -name 'node_modules' -o \
+        -name 'venv' -o \
+        -name '__pycache__' -o \
+        -name 'dist' -o \
+        -name '.next' \
+      \) -prune -o \
+      -type f \( \
+        -name 'package-lock.json' -o \
+        -name 'pnpm-lock.yaml' -o \
+        -name 'uv.lock' -o \
+        -name 'LICENSE' -o \
+        -name '*.min.js' -o \
+        -name '*.min.css' \
+      \) -prune -o \
+      -type f -print
+  )
+
+  [ ${#files[@]} -eq 0 ] && return 1
+
+  readarray -t files < <(
+    printf "%s\0" "${files[@]}" |
+      xargs -0 file --mime-type 2>/dev/null |
+      grep -E 'text/|application/(javascript|json|x-ndjson|x-wine-extension-ini|x-yaml|xml|toml)' |
+      sed 's/: [^:]*$//' |
+      awk '!seen[$0]++'
+  )
+
+  [ ${#files[@]} -eq 0 ] && return 1
+
+  echo "Files included:" >&2
+  wc -lc "${files[@]}" | sort -n >&2
 
   for path in "${files[@]}"; do
-    local file=$(<"$path")
-    [ "${path:0:2}" = './' ] && path="${path:2}"
-    while [[ "${file::-1}" = ' ' || "${file::-1}" = $'\n' ]]; do
-      file="${file:0:-1}"
-    done
-    ext="${path: -5}"
-    [ -n "${ext//[^.]}" ] && ext="${path##*.}" || unset ext
-    prompt+=$'\n`'"${path}"$'`:\n```'"${ext}"$'\n'"${file}"$'\n```\n'
+    dp="${path#./}"
+    ext="${dp##*.}"
+    [ "$ext" = "$dp" ] && ext=""
+    content=$(cat "$path" 2>/dev/null)
+    printf -v block '\n`%s`:\n```%s\n%s\n```\n' "$dp" "$ext" "$content"
+    prompt+="$block"
   done
 
-  if [ -n "$WAYLAND_DISPLAY" ] && [ -t 1 ]; then
-    lines=$(wc -l <<< "$prompt")
-    lines="${lines%% *}"
-    wl-copy <<< "$prompt"
-    echo "Copied $lines lines into the clipboard"
+  result=$(
+    printf "%s" "$prompt" | awk -v salt="$(od -vAn -N8 -tx1 </dev/urandom 2>/dev/null | tr -d ' \n')" '
+      BEGIN {
+        L2 = log(2)
+        for (i = 0; i < 256; i++) {
+          _ord[sprintf("%c", i)] = i
+        }
+      }
+
+      function djb2(s, seed,    h, j) {
+        h = 5381 + seed
+        for (j = 1; j <= length(s); j++) {
+          h = (h * 33 + _ord[substr(s, j, 1)]) % 2147483647
+        }
+        return h
+      }
+
+      function make_hash(s,    hex, sd) {
+        hex = "hash:"
+        for (sd = 0; length(hex) < length(s); sd++) {
+          hex = hex sprintf("%08x", djb2(salt s, sd))
+        }
+        return substr(hex, 1, length(s))
+      }
+
+      function safe(w,    lw) {
+        lw = tolower(w)
+        if (w ~ /^[a-z]+$/ || w ~ /^[A-Z]+$/)                          return 1
+        if (w ~ /^[a-zA-Z]+$/ && w !~ /[A-Z][A-Z][A-Z]/)               return 1
+        if (w ~ /^[a-zA-Z_]+$/ && w ~ /_/)                             return 1
+        if (w ~ /^\//)                                                 return 1
+        if (lw ~ /\.(com|org|net|io|dev|[jt]s|py|go|rs|sh|md)$/)       return 1
+        if (lw ~ /\.(txt|json|ya?ml|toml|conf|cfg|ini|xml|html|css)$/) return 1
+        return 0
+      }
+
+      function pool(w, len,    j, ch, lo, up, dg, sp) {
+        for (j = 1; j <= len; j++) {
+          ch = substr(w, j, 1)
+          if      (ch ~ /[a-z]/) lo = 1
+          else if (ch ~ /[A-Z]/) up = 1
+          else if (ch ~ /[0-9]/) dg = 1
+          else                   sp = 1
+        }
+        if (w ~ /^[A-Fa-f0-9-]+$/)  return 16
+        if (!up && !sp && lo && dg) return 36
+        if (!lo && !sp && up && dg) return 36
+        if (lo && up && dg && !sp)  return 62
+        if (sp)                     return 64
+        if (lo && up)               return 52
+        return 64
+      }
+
+      function entropy(w, len,    j, ct, x, e, p) {
+        split("", ct)
+        for (j = 1; j <= len; j++) {
+          ct[substr(w, j, 1)]++
+        }
+        e = 0
+        for (x in ct) {
+          p = ct[x] / len
+          e -= p * log(p) / L2
+        }
+        return e
+      }
+
+      function transitions(w, len,    j, ch, cl, pv, tr, has, cnt, nc, x) {
+        split("", has); split("", cnt); tr = 0; pv = 0
+        for (j = 1; j <= len; j++) {
+          ch = substr(w, j, 1)
+          cl = (ch ~ /[a-z]/) ? 1 : (ch ~ /[A-Z]/) ? 2 : (ch ~ /[0-9]/) ? 3 : 4
+          has[cl] = 1; cnt[cl]++
+          if (j > 1 && cl != pv) tr++
+          pv = cl
+        }
+        nc = 0
+        for (x in has) {
+          if (cnt[x] >= 2) nc++
+        }
+        if (nc >= 3 && tr / (len - 1) >= 0.45) return 1
+        if (nc >= 2 && tr / (len - 1) >= 0.70) return 1
+        return 0
+      }
+
+      function check(w,    len, p, thr) {
+        len = length(w)
+        if (len < 8 || w in seen) return
+        seen[w] = 1
+        gsub(/^[^a-zA-Z0-9]+/, "", w)
+        gsub(/[^a-zA-Z0-9+\/=_-]+$/, "", w)
+        len = length(w)
+        if (len < 8 || safe(w)) return
+        if (len >= 16) {
+          p = pool(w, len)
+          thr = (p <= 16) ? 0.85 : (p <= 36) ? 0.70 : 0.75
+          if (entropy(w, len) / (log(p) / L2) >= thr) {
+            repl[w] = make_hash(w)
+            nsec++
+          }
+        } else if (transitions(w, len)) {
+          repl[w] = make_hash(w)
+          nsec++
+        }
+      }
+
+      {
+        lines[NR] = $0
+        n = split($0, tok, /[[:space:]"'"'"'"`.:;,@(){}\[\]<>|!#$%^&*~\\]+/)
+        for (i = 1; i <= n; i++) {
+          if (length(tok[i]) < 8) continue
+          eq = index(tok[i], "=")
+          if (eq > 1 && eq < length(tok[i])) {
+            lhs = substr(tok[i], 1, eq - 1)
+            if (lhs ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {
+              check(substr(tok[i], eq + 1))
+              continue
+            }
+          }
+          check(tok[i])
+        }
+      }
+
+      END {
+        if (nsec) printf "Hashed %d secrets\n", nsec > "/dev/stderr"
+        for (i = 1; i <= NR; i++) {
+          line = lines[i]
+          for (s in repl) {
+            p = 1
+            while ((idx = index(substr(line, p), s)) > 0) {
+              p = p + idx - 1
+              line = substr(line, 1, p - 1) repl[s] substr(line, p + length(s))
+              p += length(repl[s])
+            }
+          }
+          print line
+        }
+      }
+    '
+  )
+
+  if [ -t 1 ]; then
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy &>/dev/null; then
+      copy_cmd="wl-copy"
+    elif [ -n "${DISPLAY:-}" ] && command -v xclip &>/dev/null; then
+      copy_cmd="xclip -selection clipboard"
+    elif [ -n "${DISPLAY:-}" ] && command -v xsel &>/dev/null; then
+      copy_cmd="xsel --clipboard --input"
+    elif command -v pbcopy &>/dev/null; then
+      copy_cmd="pbcopy"
+    fi
+  fi
+
+  if [ -n "$copy_cmd" ]; then
+    printf "%s" "$result" | $copy_cmd
+    echo "Copied $(wc -l <<< "$result") lines (via $copy_cmd)"
   else
-    echo "$prompt"
+    printf "%s\n" "$result"
   fi
 }
 
