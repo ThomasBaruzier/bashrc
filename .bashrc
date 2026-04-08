@@ -1367,11 +1367,19 @@ ascii() {
 
 alias f2p='file2prompt'
 file2prompt() {
-  local files=() prompt="" result="" copy_cmd=""
-  local path dp ext content block
+  local files=() prompt="" result="" copy_cmd="" hash_secrets=1 find_args=()
+  local path dp ext content block arg
+
+  for arg in "$@"; do
+    if [ "$arg" = "--no-hash" ] || [ "$arg" = "-nh" ]; then
+      hash_secrets=0
+    else
+      find_args+=("$arg")
+    fi
+  done
 
   readarray -t files < <(
-    find "$@" \
+    find "${find_args[@]}" \
       -type d \( \
         -name '.git' -o \
         -name 'node_modules' -o \
@@ -1390,7 +1398,6 @@ file2prompt() {
       \) -prune -o \
       -type f -print
   )
-
   [ ${#files[@]} -eq 0 ] && return 1
 
   readarray -t files < <(
@@ -1400,7 +1407,6 @@ file2prompt() {
       sed 's/: [^:]*$//' |
       awk '!seen[$0]++'
   )
-
   [ ${#files[@]} -eq 0 ] && return 1
 
   echo "Files included:" >&2
@@ -1415,145 +1421,140 @@ file2prompt() {
     prompt+="$block"
   done
 
-  result=$(
-    printf "%s" "$prompt" | awk -v salt="$(od -vAn -N8 -tx1 </dev/urandom 2>/dev/null | tr -d ' \n')" '
-      BEGIN {
-        L2 = log(2)
-        for (i = 0; i < 256; i++) {
-          _ord[sprintf("%c", i)] = i
+  if [ "$hash_secrets" -eq 1 ]; then
+    result=$(
+      printf "%s" "$prompt" | awk -v salt="$(od -vAn -N8 -tx1 </dev/urandom 2>/dev/null | tr -d ' \n')" '
+        BEGIN {
+          L2 = log(2)
+          for (i = 0; i < 256; i++) {
+            _ord[sprintf("%c", i)] = i
+          }
         }
-      }
-
-      function djb2(s, seed,    h, j) {
-        h = 5381 + seed
-        for (j = 1; j <= length(s); j++) {
-          h = (h * 33 + _ord[substr(s, j, 1)]) % 2147483647
+        function djb2(s, seed,    h, j) {
+          h = 5381 + seed
+          for (j = 1; j <= length(s); j++) {
+            h = (h * 33 + _ord[substr(s, j, 1)]) % 2147483647
+          }
+          return h
         }
-        return h
-      }
-
-      function make_hash(s,    hex, sd) {
-        hex = "hash:"
-        for (sd = 0; length(hex) < length(s); sd++) {
-          hex = hex sprintf("%08x", djb2(salt s, sd))
+        function make_hash(s,    hex, sd) {
+          hex = "hash:"
+          for (sd = 0; length(hex) < length(s); sd++) {
+            hex = hex sprintf("%08x", djb2(salt s, sd))
+          }
+          return substr(hex, 1, length(s))
         }
-        return substr(hex, 1, length(s))
-      }
-
-      function safe(w,    lw) {
-        lw = tolower(w)
-        if (w ~ /^[a-z]+$/ || w ~ /^[A-Z]+$/)                          return 1
-        if (w ~ /^[a-zA-Z]+$/ && w !~ /[A-Z][A-Z][A-Z]/)               return 1
-        if (w ~ /^[a-zA-Z_]+$/ && w ~ /_/)                             return 1
-        if (w ~ /^\//)                                                 return 1
-        if (lw ~ /\.(com|org|net|io|dev|[jt]s|py|go|rs|sh|md)$/)       return 1
-        if (lw ~ /\.(txt|json|ya?ml|toml|conf|cfg|ini|xml|html|css)$/) return 1
-        return 0
-      }
-
-      function pool(w, len,    j, ch, lo, up, dg, sp) {
-        for (j = 1; j <= len; j++) {
-          ch = substr(w, j, 1)
-          if      (ch ~ /[a-z]/) lo = 1
-          else if (ch ~ /[A-Z]/) up = 1
-          else if (ch ~ /[0-9]/) dg = 1
-          else                   sp = 1
+        function safe(w,    lw) {
+          lw = tolower(w)
+          if (w ~ /^[a-z]+$/ || w ~ /^[A-Z]+$/)                          return 1
+          if (w ~ /^[a-zA-Z]+$/ && w !~ /[A-Z][A-Z][A-Z]/)               return 1
+          if (w ~ /^[a-zA-Z_]+$/ && w ~ /_/)                             return 1
+          if (w ~ /^\//)                                                 return 1
+          if (lw ~ /\.(com|org|net|io|dev|[jt]s|py|go|rs|sh|md)$/)       return 1
+          if (lw ~ /\.(txt|json|ya?ml|toml|conf|cfg|ini|xml|html|css)$/) return 1
+          return 0
         }
-        if (w ~ /^[A-Fa-f0-9-]+$/)  return 16
-        if (!up && !sp && lo && dg) return 36
-        if (!lo && !sp && up && dg) return 36
-        if (lo && up && dg && !sp)  return 62
-        if (sp)                     return 64
-        if (lo && up)               return 52
-        return 64
-      }
-
-      function entropy(w, len,    j, ct, x, e, p) {
-        split("", ct)
-        for (j = 1; j <= len; j++) {
-          ct[substr(w, j, 1)]++
+        function pool(w, len,    j, ch, lo, up, dg, sp) {
+          for (j = 1; j <= len; j++) {
+            ch = substr(w, j, 1)
+            if      (ch ~ /[a-z]/) lo = 1
+            else if (ch ~ /[A-Z]/) up = 1
+            else if (ch ~ /[0-9]/) dg = 1
+            else                   sp = 1
+          }
+          if (w ~ /^[A-Fa-f0-9-]+$/)  return 16
+          if (!up && !sp && lo && dg) return 36
+          if (!lo && !sp && up && dg) return 36
+          if (lo && up && dg && !sp)  return 62
+          if (sp)                     return 64
+          if (lo && up)               return 52
+          return 64
         }
-        e = 0
-        for (x in ct) {
-          p = ct[x] / len
-          e -= p * log(p) / L2
+        function entropy(w, len,    j, ct, x, e, p) {
+          split("", ct)
+          for (j = 1; j <= len; j++) {
+            ct[substr(w, j, 1)]++
+          }
+          e = 0
+          for (x in ct) {
+            p = ct[x] / len
+            e -= p * log(p) / L2
+          }
+          return e
         }
-        return e
-      }
-
-      function transitions(w, len,    j, ch, cl, pv, tr, has, cnt, nc, x) {
-        split("", has); split("", cnt); tr = 0; pv = 0
-        for (j = 1; j <= len; j++) {
-          ch = substr(w, j, 1)
-          cl = (ch ~ /[a-z]/) ? 1 : (ch ~ /[A-Z]/) ? 2 : (ch ~ /[0-9]/) ? 3 : 4
-          has[cl] = 1; cnt[cl]++
-          if (j > 1 && cl != pv) tr++
-          pv = cl
+        function transitions(w, len,    j, ch, cl, pv, tr, has, cnt, nc, x) {
+          split("", has); split("", cnt); tr = 0; pv = 0
+          for (j = 1; j <= len; j++) {
+            ch = substr(w, j, 1)
+            cl = (ch ~ /[a-z]/) ? 1 : (ch ~ /[A-Z]/) ? 2 : (ch ~ /[0-9]/) ? 3 : 4
+            has[cl] = 1; cnt[cl]++
+            if (j > 1 && cl != pv) tr++
+            pv = cl
+          }
+          nc = 0
+          for (x in has) {
+            if (cnt[x] >= 2) nc++
+          }
+          if (nc >= 3 && tr / (len - 1) >= 0.45) return 1
+          if (nc >= 2 && tr / (len - 1) >= 0.70) return 1
+          return 0
         }
-        nc = 0
-        for (x in has) {
-          if (cnt[x] >= 2) nc++
-        }
-        if (nc >= 3 && tr / (len - 1) >= 0.45) return 1
-        if (nc >= 2 && tr / (len - 1) >= 0.70) return 1
-        return 0
-      }
-
-      function check(w,    len, p, thr) {
-        len = length(w)
-        if (len < 8 || w in seen) return
-        seen[w] = 1
-        gsub(/^[^a-zA-Z0-9]+/, "", w)
-        gsub(/[^a-zA-Z0-9+\/=_-]+$/, "", w)
-        len = length(w)
-        if (len < 8 || safe(w)) return
-        if (len >= 16) {
-          p = pool(w, len)
-          thr = (p <= 16) ? 0.85 : (p <= 36) ? 0.70 : 0.75
-          if (entropy(w, len) / (log(p) / L2) >= thr) {
+        function check(w,    len, p, thr) {
+          len = length(w)
+          if (len < 8 || w in seen) return
+          seen[w] = 1
+          gsub(/^[^a-zA-Z0-9]+/, "", w)
+          gsub(/[^a-zA-Z0-9+\/=_-]+$/, "", w)
+          len = length(w)
+          if (len < 8 || safe(w)) return
+          if (len >= 16) {
+            p = pool(w, len)
+            thr = (p <= 16) ? 0.85 : (p <= 36) ? 0.70 : 0.75
+            if (entropy(w, len) / (log(p) / L2) >= thr) {
+              repl[w] = make_hash(w)
+              nsec++
+            }
+          } else if (transitions(w, len)) {
             repl[w] = make_hash(w)
             nsec++
           }
-        } else if (transitions(w, len)) {
-          repl[w] = make_hash(w)
-          nsec++
         }
-      }
-
-      {
-        lines[NR] = $0
-        n = split($0, tok, /[[:space:]"'"'"'"`.:;,@(){}\[\]<>|!#$%^&*~\\]+/)
-        for (i = 1; i <= n; i++) {
-          if (length(tok[i]) < 8) continue
-          eq = index(tok[i], "=")
-          if (eq > 1 && eq < length(tok[i])) {
-            lhs = substr(tok[i], 1, eq - 1)
-            if (lhs ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {
-              check(substr(tok[i], eq + 1))
-              continue
+        {
+          lines[NR] = $0
+          n = split($0, tok, /[[:space:]"'"'"'"`.:;,@(){}\[\]<>|!#$%^&*~\\]+/)
+          for (i = 1; i <= n; i++) {
+            if (length(tok[i]) < 8) continue
+            eq = index(tok[i], "=")
+            if (eq > 1 && eq < length(tok[i])) {
+              lhs = substr(tok[i], 1, eq - 1)
+              if (lhs ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {
+                check(substr(tok[i], eq + 1))
+                continue
+              }
             }
+            check(tok[i])
           }
-          check(tok[i])
         }
-      }
-
-      END {
-        if (nsec) printf "Hashed %d secrets\n", nsec > "/dev/stderr"
-        for (i = 1; i <= NR; i++) {
-          line = lines[i]
-          for (s in repl) {
-            p = 1
-            while ((idx = index(substr(line, p), s)) > 0) {
-              p = p + idx - 1
-              line = substr(line, 1, p - 1) repl[s] substr(line, p + length(s))
-              p += length(repl[s])
+        END {
+          if (nsec) printf "Hashed %d secrets\n", nsec > "/dev/stderr"
+          for (i = 1; i <= NR; i++) {
+            line = lines[i]
+            for (s in repl) {
+              p = 1
+              while ((idx = index(substr(line, p), s)) > 0) {
+                p = p + idx - 1
+                line = substr(line, 1, p - 1) repl[s] substr(line, p + length(s))
+                p += length(repl[s])
+              }
             }
+            print line
           }
-          print line
         }
-      }
-    '
-  )
+      '
+    )
+  else
+    result="$prompt"
+  fi
 
   if [ -t 1 ]; then
     if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy &>/dev/null; then
