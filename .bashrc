@@ -1090,19 +1090,22 @@ r() {
 ##############
 
 myip() {
-  local private_ips=$(
-    ifconfig 2>/dev/null | \
-    grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | \
-    grep -ve '^255\.' -e '\.255$' -e '127.0.0.1' | \
-    sort -u | tr '\n' ' '
-  )
+  local private_ips=$(ip -4 -o addr show | \
+    awk '{print $4}' | \
+    cut -d/ -f1 | \
+    grep -v '127.0.0.1' | \
+    sort -u | \
+    xargs | \
+    sed 's/ / - /g')
 
-  private_ips="${private_ips:: -1}"
-  private_ips="${private_ips// / - }"
-  echo -e "PRIVATE: \e[34m$private_ips\e[0m"
+  echo -e "PRIVATE: \e[34m${private_ips:-None}\e[0m"
 
+  local public_ip
   public_ip=$(curl -s -4 --max-time 5 ip.3z.ee 2>/dev/null)
-  grep -qE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' <<< "$public_ip" || public_ip='Request Failed'
+
+  [[ "$public_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
+    public_ip='Request Failed'
+
   echo -e "PUBLIC:  \e[34m$public_ip\e[0m"
 }
 
