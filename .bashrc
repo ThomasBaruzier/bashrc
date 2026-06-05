@@ -1395,6 +1395,7 @@ file2prompt() {
         -name 'package-lock.json' -o \
         -name 'pnpm-lock.yaml' -o \
         -name 'Cargo.lock' -o \
+        -name 'go.sum' -o \
         -name 'uv.lock' -o \
         -name 'LICENSE' -o \
         -name '*.min.js' -o \
