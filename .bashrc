@@ -674,14 +674,52 @@ except ImportError:
 
 # arguments
 device, sudo = sys.argv[1:3]
+
+def age_days(value):
+  try:
+    days = int(value)
+  except ValueError:
+    raise argparse.ArgumentTypeError("age must be a nonnegative integer")
+  if days < 0:
+    raise argparse.ArgumentTypeError("age must be a nonnegative integer")
+  return days
+
 parser = argparse.ArgumentParser(prog="clean")
 parser.add_argument("-d", "--docker", action="store_true",
                     help="also prune local Docker objects, excluding volumes")
 parser.add_argument("-p", "--projects", action="store_true",
-                    help="also clean projects inactive for 30 days")
+                    help="also clean inactive projects (default: 30 days)")
 parser.add_argument("-n", "--dry-run", action="store_true",
                     help="preview without cleaning")
+parser.add_argument(
+  "--age", type=age_days, metavar="DAYS",
+  help="override age-controlled thresholds except journald; "
+       "unconditional cleanup is unchanged"
+)
+
+age_settings = {
+  "cache": (1, "age-filtered user/application caches and editor logs"),
+  "tmp": (1, "/tmp or Termux temporary files"),
+  "var-tmp": (7, "/var/tmp files"),
+  "log": (7, "conventional rotated system logs"),
+  "project": (30, "project inactivity; does not enable --projects")
+}
+for name, (default, description) in age_settings.items():
+  parser.add_argument(
+    "--" + name + "-age", type=age_days, metavar="DAYS",
+    help=f"{description} (default: {default}; 0 disables age)"
+  )
+parser.add_argument(
+  "--journal-age", type=age_days, default=7, metavar="DAYS",
+  help="journal time threshold (default: 7; minimum: 1); "
+       "independent of --age, with a 50 MiB size cap"
+)
 args = parser.parse_args(sys.argv[3:])
+for name, (default, _) in age_settings.items():
+  attribute = name.replace("-", "_") + "_age"
+  if getattr(args, attribute) is None:
+    setattr(args, attribute, args.age if args.age is not None else default)
+args.journal_age = max(1, args.journal_age)
 
 home = os.path.realpath(os.path.expanduser("~"))
 priv = [sudo] if sudo and os.geteuid() and device != "phone" else []
@@ -689,7 +727,7 @@ errors = {"command": 0, "file": 0}
 reported = set()
 colored = sys.stdout.isatty() and "NO_COLOR" not in os.environ
 started = time.time()
-cutoff = started - 30 * 86400
+cutoff = started - args.project_age * 86400
 interrupted = False
 aborted = False
 estimated_bytes = 0
@@ -1412,12 +1450,16 @@ def projects():
   if os.path.isabs(value):
     active.add(os.path.normpath(value))
 
+  recent_reason = f"activity within {args.project_age} days"
+
   def omitted(path):
     return any(within(path, root) for root in excluded)
 
-  def stamp(path):
+  def recent(path):
+    if not args.project_age:
+      return False
     info = os.lstat(path)
-    return max(info.st_mtime, info.st_ctime)
+    return max(info.st_mtime, info.st_ctime) >= cutoff
 
   def kinds(names):
     return {
@@ -1657,11 +1699,12 @@ def projects():
     if repository is None:
       return False
     gitdir = repository[1]
-    for leaf in ("HEAD", "index", "FETCH_HEAD", "ORIG_HEAD",
-                 "packed-refs", "logs/HEAD"):
-      info = metadata_info(gitdir + "/" + leaf, optional=True)
-      if info is not None and max(info.st_mtime, info.st_ctime) >= cutoff:
-        return True
+    if args.project_age:
+      for leaf in ("HEAD", "index", "FETCH_HEAD", "ORIG_HEAD",
+                   "packed-refs", "logs/HEAD"):
+        info = metadata_info(gitdir + "/" + leaf, optional=True)
+        if info is not None and max(info.st_mtime, info.st_ctime) >= cutoff:
+          return True
     common = gitdir + "/commondir"
     if metadata_info(common, optional=True) is not None:
       target = os.path.normpath(os.path.join(gitdir, read_text(common).strip()))
@@ -1723,14 +1766,14 @@ def projects():
     pending = [root]
     while pending:
       directory = pending.pop()
-      if stamp(directory) >= cutoff:
-        return "activity within 30 days"
+      if recent(directory):
+        return recent_reason
       with os.scandir(directory) as stream:
         for entry in stream:
           if entry.name == ".git":
             return "artifact contains a repository"
-          if stamp(entry.path) >= cutoff:
-            return "activity within 30 days"
+          if recent(entry.path):
+            return recent_reason
           if entry.is_dir(follow_symlinks=False):
             pending.append(entry.path)
     return ""
@@ -1738,8 +1781,8 @@ def projects():
   def inspect(group):
     if any(within(path, group) for path in active):
       return [], "currently in use"
-    if stamp(group) >= cutoff:
-      return [], "activity within 30 days"
+    if recent(group):
+      return [], recent_reason
 
     inherited = repository_for(group)
     candidates = []
@@ -1753,8 +1796,8 @@ def projects():
     while pending:
       directory, repository, node_project, python_project = pending.pop()
       visited.add(directory)
-      if stamp(directory) >= cutoff:
-        return [], "activity within 30 days"
+      if recent(directory):
+        return [], recent_reason
 
       with os.scandir(directory) as stream:
         entries = sorted(stream, key=lambda entry: entry.name)
@@ -1771,8 +1814,8 @@ def projects():
         if omitted(entry.path):
           skipped.append(entry.path)
           continue
-        if stamp(entry.path) >= cutoff:
-          return [], "activity within 30 days"
+        if recent(entry.path):
+          return [], recent_reason
         eligible_entries.append(entry)
 
       if ".git" in names:
@@ -1782,7 +1825,7 @@ def projects():
         repository = (directory, marker)
         repositories[directory] = repository
         if git_recent(repository):
-          return [], "activity within 30 days"
+          return [], recent_reason
 
       kind = kinds(names)
       node_project = node_project or kind["node"]
@@ -1862,52 +1905,67 @@ def projects():
   pending = [home]
   while pending:
     directory = pending.pop()
+    group_jobs = []
+    is_group = False
+
     try:
       with os.scandir(directory) as stream:
         entries = sorted(stream, key=lambda entry: entry.name)
       names = {entry.name for entry in entries}
 
-      if directory != home and (
+      is_group = directory != home and (
         ".git" in names or any(kinds(names).values())
-        or names & {"pnpm-workspace.yaml", "pnpm-workspace.yml"}
-      ):
+        or bool(names & {"pnpm-workspace.yaml", "pnpm-workspace.yml"})
+      )
+
+      if is_group:
         candidates, reason = inspect(directory)
         if reason:
           log("PROJECT", "SKIP", directory, reason)
           continue
 
-        group_jobs = []
         for path, repository in candidates:
           reason = tracked(path, repository)
           if reason:
             log("PROJECT", "SKIP", path, reason)
           else:
             group_jobs.append(job(path, keep=False))
-
-        if group_jobs:
-          if mount_table() != mounts:
-            log("PROJECT", "SKIP", "remaining projects", "mount layout changed")
-            return
-          files("PROJECT", group_jobs)
-        continue
-
-      for entry in entries:
-        if entry.path in blocked:
-          log("PROJECT", "SKIP", entry.path, blocked[entry.path])
-          continue
-        if omitted(entry.path) or entry.name in {
-          ".git", "node_modules", ".venv", "venv"
-        }:
-          continue
-        if entry.is_dir(follow_symlinks=False):
-          pending.append(entry.path)
+      else:
+        for entry in entries:
+          if entry.path in blocked:
+            log("PROJECT", "SKIP", entry.path, blocked[entry.path])
+            continue
+          if omitted(entry.path) or entry.name in {
+            ".git", "node_modules", ".venv", "venv"
+          }:
+            continue
+          if entry.is_dir(follow_symlinks=False):
+            pending.append(entry.path)
 
     except ValueError as exc:
       log("PROJECT", "SKIP", directory, str(exc))
+      continue
+    except PermissionError as exc:
+      log("PROJECT", "SKIP", directory,
+          "permission denied: " + display(exc.filename or directory))
+      continue
+    except FileNotFoundError as exc:
+      log("PROJECT", "SKIP", directory,
+          "path or Git metadata unavailable: "
+          + display(exc.filename or directory))
+      continue
     except CommandError as exc:
       failure("PROJECT", exc.command, exc)
+      continue
     except OSError as exc:
       failure("PROJECT", exc.filename or directory, exc, "file")
+      continue
+
+    if is_group and group_jobs:
+      if mount_table() != mounts:
+        log("PROJECT", "SKIP", "remaining projects", "mount layout changed")
+        return
+      files("PROJECT", group_jobs)
 
 # user caches
 def user_caches():
@@ -1952,7 +2010,7 @@ def user_caches():
       owned.extend(paths)
 
   jobs = [
-    job(root, 1, exclude=installations + owned + [
+    job(root, args.cache_age, exclude=installations + owned + [
       path for path in rejected if path != root and within(path, root)
     ])
     for root in cache_roots if root not in rejected
@@ -1987,10 +2045,12 @@ def user_caches():
     "DawnWebGPUCache", "DawnGraphiteCache"
   )
   jobs += [
-    job(f"{config}/{app}/{leaf}", 1)
+    job(f"{config}/{app}/{leaf}", args.cache_age)
     for app in applications for leaf in leaves
   ]
-  jobs += [job(f"{config}/{editor}/logs", 1) for editor in editors]
+  jobs += [
+    job(f"{config}/{editor}/logs", args.cache_age) for editor in editors
+  ]
 
   for browser in ("chromium", "google-chrome"):
     root = config + "/" + browser
@@ -2004,7 +2064,7 @@ def user_caches():
           if (entry.name == "Default" or entry.name.startswith("Profile ")) \
               and entry.is_dir(follow_symlinks=False):
             jobs += [
-              job(entry.path + "/" + leaf, 1)
+              job(entry.path + "/" + leaf, args.cache_age)
               for leaf in ("Cache", "Code Cache", "GPUCache")
             ]
     except FileNotFoundError:
@@ -2049,9 +2109,9 @@ def temporary():
     return
   if device == "phone":
     prefix = os.environ.get("PREFIX", "").rstrip("/")
-    roots = [(prefix + "/tmp", 1)] if os.path.isabs(prefix) else []
+    roots = [(prefix + "/tmp", args.tmp_age)] if os.path.isabs(prefix) else []
   else:
-    roots = [("/tmp", 1), ("/var/tmp", 7)]
+    roots = [("/tmp", args.tmp_age), ("/var/tmp", args.var_tmp_age)]
 
   names = [
     ".X11-unix", ".X[0-9]*-lock", ".ICE-unix", ".XIM-unix", ".font-unix",
@@ -2068,7 +2128,8 @@ def logs():
   if device in ("phone", "chroot"):
     return
   files("LOG", [
-    job("/var/log", 7, access=False, directories=False, links=False,
+    job("/var/log", args.log_age,
+        access=False, directories=False, links=False,
         exclude=["/var/log/journal", "/var/log/audit"],
         patterns=["*.gz", "*.xz", "*.zst", "*.[0-9]", "*.[0-9][0-9]", "*.old"]),
     job("/var/lib/systemd/coredump", patterns=["core.*"],
@@ -2079,7 +2140,8 @@ def logs():
   if available("journalctl") and os.path.isdir("/run/systemd/system"):
     remember("/var/log/journal")
     run("JOURNAL", priv + [
-      "journalctl", "--rotate", "--vacuum-size=50M", "--vacuum-time=7d"
+      "journalctl", "--rotate", "--vacuum-size=50M",
+      f"--vacuum-time={args.journal_age}d"
     ])
 
 # docker
@@ -2112,6 +2174,19 @@ def docker():
     log("DOCKER", "SKIP", endpoint, "remote or unsupported Docker endpoint")
     return
 
+  socket_path = endpoint[len("unix://"):]
+  if not os.path.isabs(socket_path):
+    failure("DOCKER", endpoint, "invalid local socket path")
+    return
+  try:
+    socket_info = os.stat(socket_path)
+  except FileNotFoundError:
+    log("DOCKER", "SKIP", endpoint, "daemon unavailable; socket absent")
+    return
+  if not stat.S_ISSOCK(socket_info.st_mode):
+    failure("DOCKER", endpoint, "endpoint is not a Unix socket")
+    return
+
   command = priv + [
     "env", "-u", "DOCKER_HOST", "-u", "DOCKER_CONTEXT",
     "LC_ALL=C", "NO_COLOR=1",
@@ -2129,7 +2204,6 @@ def docker():
 
   # builder inspection
   builder_name = ""
-  builder_reason = ""
   if query(command + ["buildx", "version"]).returncode == 0:
     inspect_command = command + ["buildx", "inspect"]
     result = query(inspect_command)
@@ -2174,21 +2248,22 @@ def docker():
       if context:
         allowed.add(context)
 
+      reason = ""
       if not name or not driver:
-        builder_reason = "unrecognized Buildx inspection output"
+        reason = "unrecognized Buildx inspection output"
       elif driver == "docker":
         pass
       elif driver != "docker-container" or not nodes:
-        builder_reason = "builder locality not established"
+        reason = "builder locality not established"
       elif any(node.get("Endpoint") not in allowed for node in nodes):
-        builder_reason = "builder uses another endpoint"
+        reason = "builder uses another endpoint"
       elif any(node.get("Status", "").lower() != "running" for node in nodes):
-        builder_reason = "builder not running"
+        reason = "builder not running"
       else:
         builder_name = name
 
-      if builder_reason:
-        log("DOCKER", "SKIP", name or "selected Buildx builder", builder_reason)
+      if reason:
+        log("DOCKER", "SKIP", name or "selected Buildx builder", reason)
 
   run("DOCKER", command + ["system", "prune", "-af"],
       f"{context or 'explicit endpoint'}; {endpoint}")
