@@ -2591,63 +2591,6 @@ ren() {
   done
 }
 
-run() {
-  # init
-  local path="$1"
-  local dir="${path%/*}"
-  local file="${path##*/}"
-  local name="${file%%.*}"
-  [[ "$file" =~  '.' ]] && local ext="${file#*.}"
-  cd "$dir"
-
-  # detect ext based on header
-  fileinfo=$(file "$path")
-  if [[ "$fileinfo" = *'shell script'* ]]; then
-    ext='sh'
-  elif [[ "$fileinfo" = *'python script'* || "$fileinfo" = *'Python script'* ]]; then
-    ext='py'
-  elif [[ "$fileinfo" = *'executable'* ]]; then
-    ext='exe'
-  fi
-
-  # launcher
-  case "$ext" in
-    sh|bash) chmod +x "$path" && "$path" "${@:3}";;
-    c) gcc "$path" -o "$dir/$name.exe" -lm \
-       && (sleep 0.5 && rm -f "$dir/$name.exe" &) \
-       && "$dir/$name.exe" "${@:3}";;
-    exe|out) "$path" "${@:3}";;
-    py) python "$path" "${@:3}";;
-    jar) java -jar "$path" "${@:3}";;
-    tar.gz|tgz|tar.xz|txz) (($(du -m "$path" | cut -f -1) > 10)) \
-            && pv "$path" | tar x || tar xf "$path";;
-    7z|bz2|bzip2|tbz2|tbz|gz|gzip|tgz|tar|wim|swm|esd|xz|txz|zip|zipx|dmg|img|fat|img|hfs|iso|lzma|mbr|ntfs|rar|qcow|qcow2|qcow2c|001|002|squashfs|udf|scap|uefif|vdi|vhd|vmdk|xar|pkg|z|taz)
-      7z x "$path";;
-    *) error "File type isn't supported"; return 1;;
-  esac
-}
-
-r() {
-  # init
-  mkdir -p ~/.cache/last
-  if [ -f ~/.cache/last/script ]; then
-    local last=$(cat ~/.cache/last/script)
-  else
-    local last
-  fi
-
-  [ -n "$1" ] && last=$(readlink -f "$1")
-  if [ -s "$last" ]; then
-    echo "$last" > ~/.cache/last/script
-    run "$last" "$@"
-  else
-    [ -n "$last" ] && last="($last)"
-    last="${last/$HOME/\~}"
-    error "File is empty or doesn't exist $last"
-    return 1
-  fi
-}
-
 ##############
 # NETWORKING #
 ##############
