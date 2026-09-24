@@ -664,6 +664,9 @@ import sys
 import time
 import traceback
 
+if sys.version_info < (3, 8):
+  sys.exit("clean requires Python 3.8+")
+
 try:
   import tomllib
 except ImportError:
@@ -736,11 +739,11 @@ class CommandError(Exception):
     self.command = shlex.join(command)
     super().__init__(message)
 
-def query(command, env=None):
+def query(command, env=None, binary=False):
+  options = {} if binary else {"text": True, "errors": "surrogateescape"}
   try:
     return subprocess.run(
-      command, cwd=home, env=env, capture_output=True, text=True,
-      errors="surrogateescape"
+      command, cwd=home, env=env, capture_output=True, **options
     )
   except OSError as exc:
     raise CommandError(command, str(exc)) from exc
@@ -754,12 +757,12 @@ def checked(command, env=None):
     )
   return result.stdout.strip()
 
-def run(chip, command, reason="", empty_screen=False, env=None):
+def run(chip, command, reason="", empty_screen=False):
   log(chip, "RUN", shlex.join(command), reason)
   if args.dry_run:
     return
   try:
-    result = query(command, env)
+    result = query(command)
     message = (result.stderr + result.stdout).strip()
     if result.returncode and not (
       empty_screen and "No Sockets found" in message
@@ -944,6 +947,9 @@ def clean_files(cfg, emit):
 
         with os.scandir(path) as stream:
           children = sorted(entry.path for entry in stream)
+
+        if top and not children and job.get("keep", True):
+          return False, None
 
         complete = True
         nodes = []
@@ -1151,14 +1157,21 @@ def space_sample(path):
   except PermissionError:
     if not priv:
       raise
-    output = checked(priv + [
+    command = priv + [
       sys.executable, "-I", "-c",
       "import json,os,sys; s=os.statvfs(sys.argv[1]); "
       "print(json.dumps([s.f_fsid,s.f_bavail*s.f_frsize]))",
       path
-    ])
-    identity, available_bytes = json.loads(output)
-    return int(identity), int(available_bytes)
+    ]
+    output = checked(command)
+    try:
+      values = json.loads(output)
+      if not isinstance(values, list) or len(values) != 2 \
+          or any(type(value) is not int for value in values):
+        raise ValueError("invalid filesystem measurement")
+      return tuple(values)
+    except ValueError as exc:
+      raise CommandError(command, str(exc)) from exc
 
 def remember(path, table=None):
   if args.dry_run:
@@ -1199,7 +1212,10 @@ def stop_worker(process):
   try:
     process.wait(timeout=3)
   except subprocess.TimeoutExpired:
-    process.kill()
+    try:
+      process.kill()
+    except ProcessLookupError:
+      pass
     process.wait()
 
 def files(chip, jobs, elevated=False):
@@ -1409,17 +1425,17 @@ def projects():
     }
 
   # metadata
-  def metadata_info(path, optional=False, directory=False, either=False):
+  def metadata_info(path, optional=False, directory=False, either=False,
+                    ancestor=False):
     path = os.path.abspath(path)
     item = containing(path, mounts)
     if not item or remote(item):
       raise ValueError(f"metadata on unsupported storage: {display(path)}")
     if any(within(path, root) for root in blocked):
       raise ValueError(f"metadata on excluded storage: {display(path)}")
-    if item["id"] != home_fs["id"] and not within(path, home):
+    if not ancestor and item["id"] != home_fs["id"] and not within(path, home):
       root = max((root for root in mounts if within(path, root)), key=len)
-      reason = storage_reason(root, item)
-      if reason:
+      if storage_reason(root, item):
         raise ValueError(f"metadata on excluded storage: {display(path)}")
 
     current = "/"
@@ -1449,19 +1465,36 @@ def projects():
       raise ValueError(f"unsupported metadata type: {display(path)}")
     return info
 
-  def read_text(path):
-    metadata_info(path)
+  def read_text(path, ancestor=False):
+    metadata_info(path, ancestor=ancestor)
     with open(path, encoding="utf-8") as stream:
       return stream.read()
 
+  def mapping(value, label):
+    if not isinstance(value, dict):
+      raise ValueError(f"{label}: expected a table/object")
+    return value
+
+  def strings(value, label):
+    if not isinstance(value, list) or any(
+      not isinstance(item, str) for item in value
+    ):
+      raise ValueError(f"{label}: expected a list of strings")
+    return value
+
+  def string(value, label):
+    if not isinstance(value, str):
+      raise ValueError(f"{label}: expected a string")
+    return value
+
   toml_cache = {}
 
-  def read_toml(path):
+  def read_toml(path, ancestor=False):
     if not tomllib:
       raise ValueError("Cargo inspection requires Python 3.11+")
     if path not in toml_cache:
-      toml_cache[path] = tomllib.loads(read_text(path))
-    return toml_cache[path]
+      toml_cache[path] = tomllib.loads(read_text(path, ancestor=ancestor))
+    return mapping(toml_cache[path], display(path))
 
   # workspace layout
   def layout(directory, group, kind, names, members):
@@ -1474,57 +1507,65 @@ def projects():
       )):
         return "custom Cargo output location"
 
-      paths = {cargo + "/config", cargo + "/config.toml"}
+      paths = {cargo + "/config": False, cargo + "/config.toml": False}
       parent = directory
       while True:
-        paths.update({
-          parent + "/.cargo/config", parent + "/.cargo/config.toml"
-        })
+        ancestor = within(home, parent)
+        for name in ("config", "config.toml"):
+          paths[parent.rstrip("/") + "/.cargo/" + name] = ancestor
         if parent == "/":
           break
         parent = os.path.dirname(parent)
 
-      for path in sorted(paths):
-        if metadata_info(path, optional=True) is not None:
-          parsed = read_toml(path)
-          if "include" in parsed:
-            return "indirect Cargo configuration"
-          build = parsed.get("build", {})
-          if "target-dir" in build or "build-dir" in build:
-            return "custom Cargo output location"
+      for path, ancestor in sorted(paths.items()):
+        if metadata_info(path, optional=True, ancestor=ancestor) is None:
+          continue
+        parsed = read_toml(path, ancestor=ancestor)
+        if "include" in parsed:
+          return "indirect Cargo configuration"
+        build = mapping(parsed.get("build", {}), "Cargo build configuration")
+        if "target-dir" in build or "build-dir" in build:
+          return "custom Cargo output location"
 
       manifest = read_toml(directory + "/Cargo.toml")
-      declared = manifest.get("package", {}).get("workspace")
-      if declared:
-        members.append(os.path.normpath(os.path.join(directory, declared)))
+      package = mapping(manifest.get("package", {}), "Cargo package")
+      declared = package.get("workspace")
+      if declared is not None:
+        members.append(os.path.normpath(os.path.join(
+          directory, string(declared, "Cargo package.workspace")
+        )))
 
-      workspace = manifest.get("workspace", {})
-      for pattern in workspace.get("members", []):
+      workspace = mapping(manifest.get("workspace", {}), "Cargo workspace")
+      for pattern in strings(workspace.get("members", []), "Cargo members"):
         members.append(os.path.normpath(os.path.join(directory, pattern)))
 
       if workspace:
-        tables = [workspace, manifest]
-        tables += list(manifest.get("target", {}).values())
+        targets = mapping(manifest.get("target", {}), "Cargo targets")
+        tables = [workspace, manifest] + [
+          mapping(value, "Cargo target") for value in targets.values()
+        ]
         for table in tables:
           for key in ("dependencies", "dev-dependencies", "build-dependencies"):
-            for dependency in table.get(key, {}).values():
-              if isinstance(dependency, dict) and "path" in dependency:
+            dependencies = mapping(table.get(key, {}), "Cargo " + key)
+            for dependency in dependencies.values():
+              if isinstance(dependency, str):
+                continue
+              dependency = mapping(dependency, "Cargo dependency")
+              if "path" in dependency:
                 target = os.path.normpath(os.path.join(
-                  directory, dependency["path"]
+                  directory, string(dependency["path"], "Cargo dependency path")
                 ))
                 if not within(target, group):
                   return "external Cargo workspace dependency"
 
     if kind["node"]:
-      package = json.loads(read_text(directory + "/package.json"))
+      package = mapping(
+        json.loads(read_text(directory + "/package.json")), "package.json"
+      )
       patterns = package.get("workspaces", [])
       if isinstance(patterns, dict):
         patterns = patterns.get("packages", [])
-      if not isinstance(patterns, list):
-        return "unrecognized Node workspace"
-      for pattern in patterns:
-        if not isinstance(pattern, str):
-          return "unrecognized Node workspace"
+      for pattern in strings(patterns, "Node workspaces"):
         if not pattern.startswith("!"):
           if "{" in pattern or "}" in pattern:
             return "workspace pattern not resolved"
@@ -1535,16 +1576,21 @@ def projects():
         if name not in names:
           continue
         text = read_text(directory + "/" + name)
+        text = re.sub(
+          r"""("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|//[^\n]*|/\*[\s\S]*?\*/""",
+          lambda match: match[1] if match[1] is not None else " ",
+          text
+        )
         if re.search(r"\b(projectDir|includeBuild|evaluate|apply)\b", text):
           return "custom Gradle workspace layout"
-        for match in re.finditer(r"\binclude\s*(\([^)]*\)|[^\n;]+)", text):
+        for match in re.finditer(r"\binclude\b\s*(\([^)]*\)|[^\n;]+)", text):
           clause = match[1]
           literals = re.findall(r"""["']([^"']*)["']""", clause)
           remaining = re.sub(r"""["'][^"']*["']""", "", clause)
           if not literals or remaining.strip(" \t\r\n(),"):
             return "dynamic Gradle workspace layout"
           for member in literals:
-            if "$" in member:
+            if "$" in member or "\\" in member:
               return "dynamic Gradle workspace layout"
             members.append(os.path.normpath(os.path.join(
               directory, member.lstrip(":").replace(":", "/")
@@ -1559,13 +1605,16 @@ def projects():
   tracking = {}
 
   def git_marker(directory):
-    marker = directory + "/.git" if directory != "/" else "/.git"
-    info = metadata_info(marker, optional=True, either=True)
+    marker = directory.rstrip("/") + "/.git"
+    ancestor = within(home, directory)
+    info = metadata_info(
+      marker, optional=True, either=True, ancestor=ancestor
+    )
     if info is None:
       return None
     if stat.S_ISDIR(info.st_mode):
       return marker
-    text = read_text(marker).strip()
+    text = read_text(marker, ancestor=ancestor).strip()
     if not text.startswith("gitdir: "):
       raise ValueError(f"unrecognized Git directory: {display(marker)}")
     target = os.path.normpath(os.path.join(directory, text[8:]))
@@ -1621,9 +1670,11 @@ def projects():
     if root not in tracking:
       if not available("git"):
         return "Git unavailable"
-      result = query(["git", "-C", root, "ls-files", "-z"], git_env)
+      result = query(
+        ["git", "-C", root, "ls-files", "-z"], git_env, binary=True
+      )
       tracking[root] = sorted(
-        name for name in result.stdout.split("\0") if name
+        os.fsdecode(name) for name in result.stdout.split(b"\0") if name
       ) if result.returncode == 0 else None
 
     names = tracking[root]
@@ -1797,7 +1848,6 @@ def projects():
     return candidates, ""
 
   pending = [home]
-
   while pending:
     directory = pending.pop()
     try:
@@ -1840,7 +1890,7 @@ def projects():
         if entry.is_dir(follow_symlinks=False):
           pending.append(entry.path)
 
-    except (ValueError, UnicodeError) as exc:
+    except ValueError as exc:
       log("PROJECT", "SKIP", directory, str(exc))
     except CommandError as exc:
       failure("PROJECT", exc.command, exc)
@@ -1917,9 +1967,7 @@ def user_caches():
   jobs.append(job(gradle + "/daemon", patterns=["daemon-*.out.log"],
                   directories=False, links=False))
 
-  editors = (
-    "Code", "Code - OSS", "VSCodium", "Cursor", "Antigravity"
-  )
+  editors = ("Code", "Code - OSS", "VSCodium", "Cursor", "Antigravity")
   applications = editors + ("Signal", "Claude", "heroic")
   leaves = (
     "Cache", "Code Cache", "GPUCache", "CachedData",
@@ -2054,70 +2102,79 @@ def docker():
 
   command = priv + [
     "env", "-u", "DOCKER_HOST", "-u", "DOCKER_CONTEXT",
+    "LC_ALL=C", "NO_COLOR=1",
     "docker", "--config", docker_config
   ] + selection
 
-  info_command = command + ["info", "--format", "{{json .}}"]
-  output = checked(info_command)
-  try:
-    info = json.loads(output)
-    if not isinstance(info, dict):
-      raise ValueError("expected an object")
-    root = info.get("DockerRootDir")
-    if not isinstance(root, str) or not os.path.isabs(root):
-      raise ValueError("invalid DockerRootDir")
-  except ValueError as exc:
-    failure("DOCKER", shlex.join(info_command), f"invalid Docker metadata: {exc}")
+  info_command = command + ["info", "--format", "{{.DockerRootDir}}"]
+  root = checked(info_command)
+  if not os.path.isabs(root) or "\n" in root:
+    failure("DOCKER", shlex.join(info_command), "invalid DockerRootDir")
     return
 
   remember(root)
   remember("/var/lib/containerd")
 
+  # builder inspection
+  builder_name = ""
+  builder_reason = ""
+  if query(command + ["buildx", "version"]).returncode == 0:
+    inspect_command = command + ["buildx", "inspect"]
+    result = query(inspect_command)
+    if result.returncode:
+      failure("DOCKER", shlex.join(inspect_command),
+              result.stderr.strip() or result.stdout.strip()
+              or f"exit {result.returncode}")
+    else:
+      header = {}
+      nodes = []
+      in_nodes = False
+      for line in result.stdout.splitlines():
+        text = line.strip()
+        if text == "Nodes:":
+          in_nodes = True
+          continue
+        match = re.match(r"^(Name|Driver|Endpoint|Status):\s*(.*)$", text)
+        if not match:
+          continue
+        key, value = match.groups()
+        if not in_nodes:
+          header[key] = value
+        elif key == "Name":
+          nodes.append({"Name": value})
+        elif nodes:
+          nodes[-1][key] = value
+
+      name = header.get("Name", "")
+      driver = header.get("Driver", "")
+      allowed = {endpoint}
+      if context:
+        allowed.add(context)
+
+      if not name or not driver:
+        builder_reason = "unrecognized Buildx inspection output"
+      elif driver == "docker":
+        pass
+      elif driver != "docker-container" or not nodes:
+        builder_reason = "builder locality not established"
+      elif any(node.get("Endpoint") not in allowed for node in nodes):
+        builder_reason = "builder uses another endpoint"
+      elif any(node.get("Status", "").lower() != "running" for node in nodes):
+        builder_reason = "builder not running"
+      else:
+        builder_name = name
+
+      if builder_reason:
+        log("DOCKER", "SKIP", name or "selected Buildx builder", builder_reason)
+
   run("DOCKER", command + ["system", "prune", "-af"],
       f"{context or 'explicit endpoint'}; {endpoint}")
   run("DOCKER", command + ["builder", "prune", "-af"])
 
-  if query(command + ["buildx", "version"]).returncode:
-    return
-  inspect_command = command + ["buildx", "inspect", "--format", "{{json .}}"]
-  result = query(inspect_command)
-  if result.returncode:
-    log("DOCKER", "SKIP", "selected Buildx builder", "unavailable")
-    return
-
-  try:
-    builder = json.loads(result.stdout)
-    if not isinstance(builder, dict):
-      raise ValueError("expected an object")
-    nodes = builder.get("Nodes", [])
-    if not isinstance(nodes, list) or any(
-      not isinstance(node, dict) for node in nodes
-    ):
-      raise ValueError("invalid builder nodes")
-  except ValueError as exc:
-    failure("DOCKER", shlex.join(inspect_command),
-            f"invalid Buildx metadata: {exc}")
-    return
-
-  if builder.get("Driver") == "docker":
-    return
-  if builder.get("Driver") != "docker-container" or not nodes:
-    log("DOCKER", "SKIP", builder.get("Name", "Buildx"),
-        "builder locality not established")
-    return
-
-  allowed = {endpoint}
-  if context:
-    allowed.add(context)
-  if any(node.get("Endpoint") not in allowed for node in nodes):
-    log("DOCKER", "SKIP", builder.get("Name", "Buildx"),
-        "builder uses another endpoint")
-    return
-  if any(node.get("Status") != "running" for node in nodes):
-    log("DOCKER", "SKIP", builder.get("Name", "Buildx"), "builder not running")
-    return
-
-  run("DOCKER", command + ["buildx", "prune", "-af"])
+  if builder_name:
+    run("DOCKER", command + [
+      "buildx", "--builder", builder_name, "prune", "-af"
+    ])
 
 # packages
 def packages():
