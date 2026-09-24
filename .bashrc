@@ -652,6 +652,8 @@ clean() (
   command python3 - "${DEVICE:-desktop}" "${sudo:-}" "$@" <<'PY'
 import argparse
 import bisect
+import collections
+import errno
 import fnmatch
 import json
 import os
@@ -690,13 +692,14 @@ parser.add_argument("-d", "--docker", action="store_true",
 parser.add_argument("-p", "--projects", action="store_true",
                     help="also clean inactive projects (default: 30 days)")
 parser.add_argument("-n", "--dry-run", action="store_true",
-                    help="preview without cleaning")
+                    help="preview selections and enable verbose output")
+parser.add_argument("-v", "--verbose", action="store_true",
+                    help="show skip, remove and run actions")
 parser.add_argument(
   "--age", type=age_days, metavar="DAYS",
   help="override age-controlled thresholds except journald; "
        "unconditional cleanup is unchanged"
 )
-
 age_settings = {
   "cache": (1, "age-filtered user/application caches and editor logs"),
   "tmp": (1, "/tmp or Termux temporary files"),
@@ -715,6 +718,7 @@ parser.add_argument(
        "independent of --age, with a 50 MiB size cap"
 )
 args = parser.parse_args(sys.argv[3:])
+args.verbose = args.verbose or args.dry_run
 for name, (default, _) in age_settings.items():
   attribute = name.replace("-", "_") + "_age"
   if getattr(args, attribute) is None:
@@ -723,14 +727,15 @@ args.journal_age = max(1, args.journal_age)
 
 home = os.path.realpath(os.path.expanduser("~"))
 priv = [sudo] if sudo and os.geteuid() and device != "phone" else []
-errors = {"command": 0, "file": 0}
-reported = set()
-colored = sys.stdout.isatty() and "NO_COLOR" not in os.environ
 started = time.time()
 cutoff = started - args.project_age * 86400
+colored = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+errors = collections.Counter()
+skips = collections.Counter()
+reported = set()
+file_bytes = 0
 interrupted = False
 aborted = False
-estimated_bytes = 0
 
 # output
 def within(path, root):
@@ -744,30 +749,68 @@ def display(value):
     return "~"
   return "~" + value[len(home):] if value.startswith(home + "/") else value
 
-def log(chip, action, value, reason=""):
+def skip_category(reason):
+  text = reason.lower()
+  if "permission denied" in text:
+    return "permission"
+  if "activity within" in text or "no longer eligible" in text:
+    return "recent"
+  if "currently in use" in text:
+    return "active"
+  if any(word in text for word in (
+    "filesystem", "storage", "mount", "remote", "endpoint"
+  )):
+    return "storage"
+  if "tracked" in text or "protected" in text:
+    return "protected"
+  if any(word in text for word in (
+    "not installed", "daemon unavailable", "builder not running"
+  )):
+    return "unavailable"
+  if "metadata" in text:
+    return "metadata"
+  return "unsupported"
+
+def log(chip, action, value, reason="", category=None):
   value = str(value)
   if action == "SKIP":
     key = (chip, value, reason)
     if key in reported:
       return
     reported.add(key)
+    skips[category or skip_category(reason)] += 1
+  if action != "ERROR" and not args.verbose:
+    return
   label = action
   if args.dry_run and action in ("RUN", "REMOVE"):
     label = "WOULD " + action
+  label = f"[{label}]"
+  padded = f"{label:<14}"
   code = {"SKIP": 34, "RUN": 32, "REMOVE": 31, "ERROR": 31}.get(action)
   if colored and code:
-    label = f"\033[{code}m{label}\033[0m"
+    padded = f"\033[{code}m{label}\033[0m" + " " * (14 - len(label))
   suffix = f" ({reason})" if reason else ""
-  print(f"{'[' + chip + ']':<9} {label}: {display(value)}{suffix}", flush=True)
+  print(f"{'[' + chip + ']':<10} {padded} {display(value)}{suffix}",
+        flush=True)
 
-def failure(chip, value, reason, kind="command"):
+def failure(chip, value, reason, kind=None, error_number=None):
+  if kind is None:
+    number = error_number if error_number is not None \
+      else getattr(reason, "errno", None)
+    if number in (errno.EACCES, errno.EPERM):
+      kind = "permission"
+    elif isinstance(reason, OSError) or number is not None:
+      kind = "filesystem"
+    else:
+      kind = "command"
   errors[kind] += 1
   lines = str(reason).strip().splitlines()
   log(chip, "ERROR", value, lines[0] if lines else "operation failed")
   for line in lines[1:13]:
-    print("          " + line, flush=True)
+    print(" " * 26 + line, flush=True)
   if len(lines) > 13:
-    print(f"          ... {len(lines) - 13} more diagnostic lines", flush=True)
+    print(" " * 26 + f"... {len(lines) - 13} more diagnostic lines",
+          flush=True)
 
 def available(name):
   return shutil.which(name) is not None
@@ -807,17 +850,18 @@ def run(chip, command, reason="", empty_screen=False):
       empty_screen and "No Sockets found" in message
     ):
       failure(chip, shlex.join(command),
-              f"exit {result.returncode}" + (f"\n{message}" if message else ""))
+              f"exit {result.returncode}" + (f"\n{message}" if message else ""),
+              "command")
   except CommandError as exc:
-    failure(chip, exc.command, exc)
+    failure(chip, exc.command, exc, "command")
 
 def section(chip, function):
   try:
     function()
   except CommandError as exc:
-    failure(chip, exc.command, exc)
+    failure(chip, exc.command, exc, "command")
   except OSError as exc:
-    failure(chip, exc.filename or "filesystem operation", exc, "file")
+    failure(chip, exc.filename or "filesystem operation", exc)
 
 # paths
 def setting(name, fallback):
@@ -915,12 +959,18 @@ def invalid_root(path, cfg, table, external=False):
 
 def clean_files(cfg, emit):
   failed = set()
-  allocated = {}
+  counted = set()
 
   def error(path, exc):
     if path not in failed:
       failed.add(path)
-      emit("ERROR", path, str(exc))
+      emit("ERROR", path, str(exc), getattr(exc, "errno", None))
+
+  def account(info):
+    key = (info.st_dev, info.st_ino)
+    if key not in counted:
+      counted.add(key)
+      emit("BYTES", info.st_blocks * 512)
 
   try:
     initial = mount_table()
@@ -982,9 +1032,7 @@ def clean_files(cfg, emit):
         if stat.S_ISREG(mode):
           good = eligible(path, info)
           if good and cfg["dry"]:
-            allocated.setdefault(
-              (info.st_dev, info.st_ino), info.st_blocks * 512
-            )
+            account(info)
           return good, (path, False) if good else None
         if not stat.S_ISDIR(mode):
           return False, None
@@ -1040,6 +1088,8 @@ def clean_files(cfg, emit):
             emit("SKIP", path, "no longer eligible")
             return False
           os.unlink(path)
+          if stat.S_ISREG(mode):
+            account(info)
           return True
         if not stat.S_ISDIR(mode):
           return False
@@ -1100,9 +1150,6 @@ def clean_files(cfg, emit):
       emit("REMOVE", path, "contents" if keep else "")
       if not cfg["dry"]:
         remove(path, keep)
-
-  if cfg["dry"]:
-    emit("ESTIMATE", sum(allocated.values()), "")
 '''
 
 namespace = {}
@@ -1125,7 +1172,7 @@ def resolve_paths():
       if os.path.isabs(value):
         npm = os.path.normpath(value)
     except CommandError as exc:
-      failure("CACHE", exc.command, exc)
+      failure("CACHE", exc.command, exc, "command")
 
   if available("go"):
     command = [
@@ -1152,9 +1199,9 @@ def resolve_paths():
         for name in ("GOCACHE", "GOMODCACHE")
       ]
     except CommandError as exc:
-      failure("CACHE", exc.command, exc)
+      failure("CACHE", exc.command, exc, "command")
     except ValueError as exc:
-      failure("CACHE", shlex.join(command), exc)
+      failure("CACHE", shlex.join(command), exc, "metadata")
 
   preserve = [
     root + "/" + name
@@ -1236,14 +1283,10 @@ def remember(path, table=None):
 
   try:
     identity, available_bytes = space_sample(root)
-    key = (item["type"], identity)
-    space.setdefault(key, (root, available_bytes))
-  except CommandError as exc:
+    space.setdefault((item["type"], identity), (root, available_bytes))
+  except (CommandError, OSError) as exc:
     space_failed.add(root)
-    failure("SYSTEM", exc.command, exc)
-  except OSError as exc:
-    space_failed.add(root)
-    failure("SYSTEM", root, f"cannot measure free space: {exc}", "file")
+    failure("SYSTEM", root, f"cannot measure free space: {exc}", "measurement")
 
 # filesystem jobs
 def job(path, days=0, **options):
@@ -1282,7 +1325,7 @@ def files(chip, jobs, elevated=False):
     except PermissionError:
       pass
     except OSError as exc:
-      failure(chip, path, exc, "file")
+      failure(chip, path, exc)
       continue
 
     if path in unique and unique[path] != item:
@@ -1299,15 +1342,16 @@ def files(chip, jobs, elevated=False):
 
   if not selected:
     return
-
   cfg = dict(base_cfg, jobs=selected)
 
-  def emit(action, path, reason=""):
-    global estimated_bytes
-    if action == "ESTIMATE":
-      estimated_bytes += int(path)
+  def emit(action, path, reason="", error_number=None):
+    global file_bytes
+    if action == "BYTES":
+      file_bytes += int(path)
     elif action == "ERROR":
-      failure(chip, path, reason, "file")
+      failure(chip, path, reason,
+              kind="permission" if error_number in (errno.EACCES, errno.EPERM)
+              else "filesystem")
     else:
       log(chip, action, path, reason)
 
@@ -1316,12 +1360,20 @@ def files(chip, jobs, elevated=False):
     return
 
   driver = '''
+total = 0
+def emit(action, path, reason="", error_number=None):
+  global total
+  if action == "BYTES":
+    total += int(path)
+  else:
+    print(json.dumps([action, path, reason, error_number]), flush=True)
+
 try:
-  clean_files(json.load(sys.stdin),
-    lambda action, path, reason="":
-      print(json.dumps([action, path, reason]), flush=True))
+  clean_files(json.load(sys.stdin), emit)
 except KeyboardInterrupt:
   sys.exit(130)
+finally:
+  print(json.dumps(["BYTES", total, "", None]), flush=True)
 '''
   command = priv + [sys.executable, "-I", "-c", shared + driver]
   try:
@@ -1353,7 +1405,7 @@ except KeyboardInterrupt:
   if status in (130, -2):
     raise KeyboardInterrupt
   if status:
-    failure(chip, "filesystem worker", f"exit {status}")
+    failure(chip, "filesystem worker", f"exit {status}", "command")
 
 # project storage
 rotation = {}
@@ -1399,7 +1451,6 @@ def storage_reason(path, item):
     return "unclassified filesystem crossing"
   if item["root"] != "/":
     return "subtree/bind mount"
-
   aliases = [
     other for other, value in mounts.items()
     if value["dev"] == item["dev"] and value["root"] == item["root"]
@@ -1413,7 +1464,7 @@ def storage_reason(path, item):
 def projects():
   home_fs = containing(home, mounts)
   if not home_fs or remote(home_fs):
-    log("PROJECT", "SKIP", home, "unknown or network filesystem")
+    log("PROJECTS", "SKIP", home, "unknown or network filesystem")
     return
 
   blocked = {
@@ -1429,7 +1480,8 @@ def projects():
   excluded += [path for path in go_caches if os.path.isabs(path)]
 
   if any(within(home, root) for root in excluded):
-    log("PROJECT", "SKIP", home, "configured installation/cache root covers home")
+    log("PROJECTS", "SKIP", home,
+        "configured installation/cache root covers home", "protected")
     return
 
   active = set()
@@ -1808,7 +1860,7 @@ def projects():
         if entry.name == ".git":
           continue
         if entry.path in blocked:
-          log("PROJECT", "SKIP", entry.path, blocked[entry.path])
+          log("PROJECTS", "SKIP", entry.path, blocked[entry.path])
           skipped.append(entry.path)
           continue
         if omitted(entry.path):
@@ -1921,19 +1973,19 @@ def projects():
       if is_group:
         candidates, reason = inspect(directory)
         if reason:
-          log("PROJECT", "SKIP", directory, reason)
+          log("PROJECTS", "SKIP", directory, reason)
           continue
 
         for path, repository in candidates:
           reason = tracked(path, repository)
           if reason:
-            log("PROJECT", "SKIP", path, reason)
+            log("PROJECTS", "SKIP", path, reason)
           else:
             group_jobs.append(job(path, keep=False))
       else:
         for entry in entries:
           if entry.path in blocked:
-            log("PROJECT", "SKIP", entry.path, blocked[entry.path])
+            log("PROJECTS", "SKIP", entry.path, blocked[entry.path])
             continue
           if omitted(entry.path) or entry.name in {
             ".git", "node_modules", ".venv", "venv"
@@ -1943,29 +1995,30 @@ def projects():
             pending.append(entry.path)
 
     except ValueError as exc:
-      log("PROJECT", "SKIP", directory, str(exc))
+      log("PROJECTS", "SKIP", directory, str(exc), "metadata")
       continue
     except PermissionError as exc:
-      log("PROJECT", "SKIP", directory,
-          "permission denied: " + display(exc.filename or directory))
+      log("PROJECTS", "SKIP", directory,
+          "permission denied: " + display(exc.filename or directory),
+          "permission")
       continue
     except FileNotFoundError as exc:
-      log("PROJECT", "SKIP", directory,
+      log("PROJECTS", "SKIP", directory,
           "path or Git metadata unavailable: "
-          + display(exc.filename or directory))
+          + display(exc.filename or directory), "metadata")
       continue
     except CommandError as exc:
-      failure("PROJECT", exc.command, exc)
+      failure("PROJECTS", exc.command, exc, "command")
       continue
     except OSError as exc:
-      failure("PROJECT", exc.filename or directory, exc, "file")
+      failure("PROJECTS", exc.filename or directory, exc)
       continue
 
     if is_group and group_jobs:
       if mount_table() != mounts:
-        log("PROJECT", "SKIP", "remaining projects", "mount layout changed")
+        log("PROJECTS", "SKIP", "remaining projects", "mount layout changed")
         return
-      files("PROJECT", group_jobs)
+      files("PROJECTS", group_jobs)
 
 # user caches
 def user_caches():
@@ -2176,7 +2229,7 @@ def docker():
 
   socket_path = endpoint[len("unix://"):]
   if not os.path.isabs(socket_path):
-    failure("DOCKER", endpoint, "invalid local socket path")
+    failure("DOCKER", endpoint, "invalid local socket path", "metadata")
     return
   try:
     socket_info = os.stat(socket_path)
@@ -2184,7 +2237,7 @@ def docker():
     log("DOCKER", "SKIP", endpoint, "daemon unavailable; socket absent")
     return
   if not stat.S_ISSOCK(socket_info.st_mode):
-    failure("DOCKER", endpoint, "endpoint is not a Unix socket")
+    failure("DOCKER", endpoint, "endpoint is not a Unix socket", "metadata")
     return
 
   command = priv + [
@@ -2196,7 +2249,8 @@ def docker():
   info_command = command + ["info", "--format", "{{.DockerRootDir}}"]
   root = checked(info_command)
   if not os.path.isabs(root) or "\n" in root:
-    failure("DOCKER", shlex.join(info_command), "invalid DockerRootDir")
+    failure("DOCKER", shlex.join(info_command), "invalid DockerRootDir",
+            "metadata")
     return
 
   remember(root)
@@ -2210,7 +2264,7 @@ def docker():
     if result.returncode:
       failure("DOCKER", shlex.join(inspect_command),
               result.stderr.strip() or result.stdout.strip()
-              or f"exit {result.returncode}")
+              or f"exit {result.returncode}", "command")
     else:
       header = {}
       nodes = []
@@ -2296,7 +2350,7 @@ def packages():
       ]
       if not paths or any(not os.path.isabs(path) for path in paths):
         failure("PACKAGE", "pacman-conf CacheDir",
-                "no valid absolute cache directories returned")
+                "no valid absolute cache directories returned", "metadata")
       else:
         suffixes = (
           "", ".zst", ".xz", ".gz", ".bz2",
@@ -2313,7 +2367,7 @@ def packages():
         ], elevated=True)
     else:
       failure("PACKAGE", "package cache cleanup",
-              "neither paccache nor pacman-conf is available")
+              "neither paccache nor pacman-conf is available", "command")
 
     result = query(["pacman", "-Qdtq"])
     if result.returncode == 0 and result.stdout.strip():
@@ -2321,7 +2375,7 @@ def packages():
         "pacman", "-Rns", "--noconfirm", *result.stdout.split()
       ])
     elif result.stderr.strip():
-      failure("PACKAGE", "pacman -Qdtq", result.stderr.strip())
+      failure("PACKAGE", "pacman -Qdtq", result.stderr.strip(), "command")
 
   elif available("apt-get"):
     if device == "phone":
@@ -2353,7 +2407,7 @@ try:
   remember(home)
 
   if args.projects:
-    section("PROJECT", projects)
+    section("PROJECTS", projects)
   section("CACHE", user_caches)
   section("TEMP", temporary)
   section("LOG", logs)
@@ -2368,21 +2422,19 @@ try:
 
 except KeyboardInterrupt:
   interrupted = True
-  print()
-  log("SYSTEM", "SKIP", "remaining cleanup", "interrupted")
 except CommandError as exc:
   aborted = True
-  failure("SYSTEM", exc.command, exc)
+  failure("SYSTEM", exc.command, exc, "command")
 except OSError as exc:
   aborted = True
-  failure("SYSTEM", exc.filename or "initialization", exc, "file")
+  failure("SYSTEM", exc.filename or "initialization", exc)
 except Exception as exc:
   aborted = True
-  failure("SYSTEM", "cleanup aborted", f"{type(exc).__name__}: {exc}")
+  failure("SYSTEM", "cleanup aborted", f"{type(exc).__name__}: {exc}", "internal")
   traceback.print_exc()
 
 # summary
-freed = 0
+disk_change = 0
 space_partial = bool(space_failed)
 
 if not args.dry_run:
@@ -2391,15 +2443,12 @@ if not args.dry_run:
       identity, after = space_sample(path)
       if identity != key[1]:
         space_partial = True
-        failure("SYSTEM", path, "filesystem identity changed", "file")
+        failure("SYSTEM", path, "filesystem identity changed", "measurement")
       else:
-        freed += after - before
-    except CommandError as exc:
+        disk_change += after - before
+    except (CommandError, OSError) as exc:
       space_partial = True
-      failure("SYSTEM", exc.command, exc)
-    except OSError as exc:
-      space_partial = True
-      failure("SYSTEM", path, f"cannot measure free space: {exc}", "file")
+      failure("SYSTEM", path, f"cannot measure free space: {exc}", "measurement")
     except KeyboardInterrupt:
       interrupted = True
       space_partial = True
@@ -2413,26 +2462,40 @@ def size(value):
       return sign + f"{value:.1f}".rstrip("0").rstrip(".") + unit
     value /= 1024
 
-scopes = ["generic"]
-if args.docker:
-  scopes.append("docker")
-if args.projects:
-  scopes.append("project")
+def counts(counter, order):
+  names = list(order) + sorted(set(counter) - set(order))
+  return " + ".join(
+    f"{counter[name]} {name}" for name in names if counter[name]
+  )
 
-commands, paths = errors["command"], errors["file"]
-suffix = " (interrupted)" if interrupted else " (aborted)" if aborted else ""
-print()
-print(("Would clean " if args.dry_run else "Cleaned ")
-      + " + ".join(scopes) + " caches" + suffix)
-print(f"Errors: {commands} command{'s' if commands != 1 else ''}"
-      f" + {paths} file{'s' if paths != 1 else ''}")
-if args.dry_run:
-  print("Would free: ~" + size(estimated_bytes)
-        + " (direct file cleanup only)")
-else:
-  print("Freed space: " + size(freed)
+if args.verbose or errors:
+  print()
+if interrupted:
+  print("Interrupted")
+elif aborted:
+  print("Aborted")
+
+if skips:
+  print("Skipped: " + counts(skips, (
+    "permission", "storage", "active", "recent",
+    "protected", "metadata", "unavailable", "unsupported"
+  )))
+if errors:
+  print("Errors: " + counts(errors, (
+    "permission", "filesystem", "command",
+    "metadata", "measurement", "internal"
+  )))
+
+scope = "Generic + project caches" if args.projects else "Generic cache"
+action = "found" if args.dry_run else "removed"
+print(f"{scope} {action}: ~{size(file_bytes)}")
+
+if not args.dry_run:
+  sign = "+" if disk_change >= 0 else ""
+  print("Disk free change: " + sign + size(disk_change)
         + (" (partial)" if space_partial else ""))
-sys.exit(130 if interrupted else int(bool(commands or paths or aborted)))
+
+sys.exit(130 if interrupted else int(bool(errors or aborted)))
 PY
 )
 
