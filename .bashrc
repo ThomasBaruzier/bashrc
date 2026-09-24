@@ -2129,8 +2129,11 @@ def docker():
       header = {}
       nodes = []
       in_nodes = False
+      node_indent = None
       for line in result.stdout.splitlines():
+        line = line.expandtabs()
         text = line.strip()
+        indent = len(line) - len(line.lstrip())
         if text == "Nodes:":
           in_nodes = True
           continue
@@ -2140,7 +2143,14 @@ def docker():
         key, value = match.groups()
         if not in_nodes:
           header[key] = value
-        elif key == "Name":
+          continue
+        if node_indent is None:
+          if key != "Name":
+            continue
+          node_indent = indent
+        if indent != node_indent:
+          continue
+        if key == "Name":
           nodes.append({"Name": value})
         elif nodes:
           nodes[-1][key] = value
