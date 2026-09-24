@@ -692,6 +692,7 @@ started = time.time()
 cutoff = started - 30 * 86400
 interrupted = False
 aborted = False
+estimated_bytes = 0
 
 # output
 def within(path, root):
@@ -876,6 +877,7 @@ def invalid_root(path, cfg, table, external=False):
 
 def clean_files(cfg, emit):
   failed = set()
+  allocated = {}
 
   def error(path, exc):
     if path not in failed:
@@ -941,6 +943,10 @@ def clean_files(cfg, emit):
           return good, (path, False) if good else None
         if stat.S_ISREG(mode):
           good = eligible(path, info)
+          if good and cfg["dry"]:
+            allocated.setdefault(
+              (info.st_dev, info.st_ino), info.st_blocks * 512
+            )
           return good, (path, False) if good else None
         if not stat.S_ISDIR(mode):
           return False, None
@@ -1056,6 +1062,9 @@ def clean_files(cfg, emit):
       emit("REMOVE", path, "contents" if keep else "")
       if not cfg["dry"]:
         remove(path, keep)
+
+  if cfg["dry"]:
+    emit("ESTIMATE", sum(allocated.values()), "")
 '''
 
 namespace = {}
@@ -1256,7 +1265,10 @@ def files(chip, jobs, elevated=False):
   cfg = dict(base_cfg, jobs=selected)
 
   def emit(action, path, reason=""):
-    if action == "ERROR":
+    global estimated_bytes
+    if action == "ESTIMATE":
+      estimated_bytes += int(path)
+    elif action == "ERROR":
       failure(chip, path, reason, "file")
     else:
       log(chip, action, path, reason)
@@ -2130,6 +2142,7 @@ def docker():
       nodes = []
       in_nodes = False
       node_indent = None
+
       for line in result.stdout.splitlines():
         line = line.expandtabs()
         text = line.strip()
@@ -2338,10 +2351,12 @@ print(("Would clean " if args.dry_run else "Cleaned ")
       + " + ".join(scopes) + " caches" + suffix)
 print(f"Errors: {commands} command{'s' if commands != 1 else ''}"
       f" + {paths} file{'s' if paths != 1 else ''}")
-print("Freed space: " + (
-  "0B (dry run)" if args.dry_run else
-  size(freed) + (" (partial)" if space_partial else "")
-))
+if args.dry_run:
+  print("Would free: ~" + size(estimated_bytes)
+        + " (direct file cleanup only)")
+else:
+  print("Freed space: " + size(freed)
+        + (" (partial)" if space_partial else ""))
 sys.exit(130 if interrupted else int(bool(commands or paths or aborted)))
 PY
 )
