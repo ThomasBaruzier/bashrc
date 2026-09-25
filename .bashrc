@@ -704,7 +704,7 @@ parser.add_argument("-p", "--projects", action="store_true",
 parser.add_argument("-n", "--dry-run", action="store_true",
                     help="preview selections; implies verbose")
 parser.add_argument("-v", "--verbose", action="store_true",
-                    help="show skip, remove and run actions")
+                    help="show scan, skip, remove and run actions")
 parser.add_argument(
   "--age", type=age_days, metavar="DAYS",
   help="override age-controlled thresholds except journald; "
@@ -746,6 +746,7 @@ reported = set()
 file_bytes = 0
 interrupted = False
 aborted = False
+incomplete = False
 
 def within(path, root):
   return path == root or path.startswith(root.rstrip("/") + "/")
@@ -795,7 +796,9 @@ def log(chip, action, value, reason="", category=None):
     if args.dry_run and action in ("RUN", "REMOVE") else action
   label = f"[{label}]"
   padded = f"{label:<14}"
-  code = {"SKIP": 34, "RUN": 32, "REMOVE": 31, "ERROR": 31}.get(action)
+  code = {
+    "SCAN": 36, "SKIP": 34, "RUN": 32, "REMOVE": 31, "ERROR": 31
+  }.get(action)
   if colored and code:
     padded = f"\033[{code}m{label}\033[0m" + " " * (14 - len(label))
   suffix = f" ({reason})" if reason else ""
@@ -818,8 +821,6 @@ def available(name):
   return shutil.which(name) is not None
 
 # subprocesses
-# Read-only queries are bounded. Mutating tool commands have no automatic
-# deadline; their output is drained while only a bounded diagnostic tail is kept.
 class CommandError(Exception):
   def __init__(self, command, message):
     self.command = shlex.join(command)
@@ -1162,8 +1163,6 @@ try:
 except ValueError as exc:
   sys.exit(f"clean: invalid configuration: {exc}")
 
-# Shared filesystem primitives and worker.
-# Ancestors use O_PATH: traversing / does not require permission to list it.
 shared = r'''
 import errno
 import fnmatch
@@ -1182,30 +1181,48 @@ class Limit(Exception):
 
 class Budget:
   def __init__(self, deadline=None):
+    self.started = time.monotonic()
     self.deadline = min(
-      time.monotonic() + 120,
+      self.started + 120,
       deadline if deadline is not None else float("inf")
     )
     self.entries = 0
     self.directories = 0
+    self.root = None
+    self.path = None
 
-  def check(self):
+  def fail(self, reason):
+    elapsed = time.monotonic() - self.started
+    details = [
+      f"elapsed={elapsed:.1f}s",
+      f"entries={self.entries}",
+      f"directories={self.directories}"
+    ]
+    if self.root is not None:
+      details.append(f"root={self.root!r}")
+    if self.path is not None:
+      details.append(f"path={self.path!r}")
+    raise Limit(reason + " [" + "; ".join(details) + "]")
+
+  def check(self, path=None):
+    if path is not None:
+      self.path = path
     if time.monotonic() >= self.deadline:
-      raise Limit("inventory exceeded its 120-second/phase deadline")
+      self.fail("inventory exceeded its 120-second/phase deadline")
 
-  def entry(self, depth=0):
-    self.check()
+  def entry(self, depth=0, path=None):
+    self.check(path)
     self.entries += 1
     if self.entries > 250000:
-      raise Limit("inventory exceeded 250000 entries")
+      self.fail("inventory exceeded 250000 entries")
     if depth > 96:
-      raise Limit("inventory exceeded depth 96")
+      self.fail("inventory exceeded depth 96")
 
-  def directory(self):
-    self.check()
+  def directory(self, path=None):
+    self.check(path)
     self.directories += 1
     if self.directories > 20000:
-      raise Limit("inventory exceeded 20000 directory listings")
+      self.fail("inventory exceeded 20000 directory listings")
 
 def inside(path, root):
   return path == root or path.startswith(root.rstrip("/") + "/")
@@ -1215,6 +1232,12 @@ def signature(info):
     info.st_dev, info.st_ino, info.st_mode, info.st_nlink,
     info.st_size, info.st_mtime_ns, info.st_ctime_ns
   ]
+
+def contextual_error(exc, path):
+  filename = getattr(exc, "filename", None)
+  if isinstance(filename, (str, bytes)) and os.path.isabs(filename):
+    path = filename
+  return OSError(exc.errno, exc.strerror or str(exc), path)
 
 def mount_table():
   result = {}
@@ -1287,8 +1310,10 @@ def anchor(path, table):
       fd = child
       check_mount(fd, current, table)
     return fd
-  except BaseException:
+  except BaseException as exc:
     os.close(fd)
+    if isinstance(exc, OSError):
+      raise contextual_error(exc, current) from exc
     raise
 
 def parent_fd(path, table):
@@ -1299,6 +1324,8 @@ def safe_stat(path, table):
     fd = anchor(path, table)
     try:
       return os.fstat(fd)
+    except OSError as exc:
+      raise contextual_error(exc, path) from exc
     finally:
       os.close(fd)
   expected_mount(path, table)
@@ -1310,11 +1337,13 @@ def safe_stat(path, table):
       return os.fstat(fd)
     finally:
       os.close(fd)
+  except OSError as exc:
+    raise contextual_error(exc, path) from exc
   finally:
     os.close(parent)
 
 def read_directory(path, table, budget):
-  budget.directory()
+  budget.directory(path)
   base = anchor(path, table)
   fd = None
   try:
@@ -1324,18 +1353,20 @@ def read_directory(path, table, budget):
     names = []
     with os.scandir(fd) as stream:
       for entry in stream:
-        budget.entry()
+        budget.entry(path=path)
         names.append(entry.name)
     if signature(os.fstat(base)) != before:
       raise Changed("directory changed during inventory")
     return sorted(names)
+  except OSError as exc:
+    raise contextual_error(exc, path) from exc
   finally:
     if fd is not None:
       os.close(fd)
     os.close(base)
 
 def read_regular(path, table, budget, maximum=1024 * 1024):
-  budget.check()
+  budget.check(path)
   expected_mount(path, table)
   parent = parent_fd(path, table)
   fd = None
@@ -1348,21 +1379,23 @@ def read_regular(path, table, budget, maximum=1024 * 1024):
     if not stat.S_ISREG(before.st_mode):
       raise Changed("metadata is not a regular file")
     if before.st_size > maximum:
-      raise Limit("metadata file exceeds 1 MiB")
+      budget.fail("metadata file exceeds 1 MiB")
     parts = []
     size = 0
     while True:
-      budget.check()
+      budget.check(path)
       block = os.read(fd, min(65536, maximum + 1 - size))
       if not block:
         break
       parts.append(block)
       size += len(block)
       if size > maximum:
-        raise Limit("metadata file exceeds 1 MiB")
+        budget.fail("metadata file exceeds 1 MiB")
     if signature(os.fstat(fd)) != signature(before):
       raise Changed("metadata changed during reading")
     return b"".join(parts).decode("utf-8")
+  except OSError as exc:
+    raise contextual_error(exc, path) from exc
   finally:
     if fd is not None:
       os.close(fd)
@@ -1391,7 +1424,7 @@ def invalid_root(path, cfg, table, external=False):
 
 def guards_match(guards, table, budget):
   for path, expected in guards.items():
-    budget.check()
+    budget.check(path)
     try:
       current = signature(safe_stat(path, table))
     except FileNotFoundError:
@@ -1420,7 +1453,8 @@ def clean_files(cfg, emit):
     root = job["path"]
     parent = None
     try:
-      budget.check()
+      budget.root = root
+      budget.check(root)
       initial = mount_table()
       reason = invalid_root(root, cfg, initial)
       if reason:
@@ -1473,7 +1507,7 @@ def clean_files(cfg, emit):
         return matcher is None or matcher(basename) is not None
 
       def plan(fd, entry, path, top=False, depth=0):
-        budget.entry(depth)
+        budget.entry(depth, path)
         if excluded(path):
           return False, None
         if not top and path in initial:
@@ -1510,7 +1544,7 @@ def clean_files(cfg, emit):
         if not top and not job.get("recursive", True):
           return False, None
 
-        budget.directory()
+        budget.directory(path)
         child_fd = open_component(entry, os.O_RDONLY | os.O_DIRECTORY, fd)
         try:
           if signature(os.fstat(child_fd)) != sig:
@@ -1523,10 +1557,10 @@ def clean_files(cfg, emit):
           names = []
           with os.scandir(child_fd) as stream:
             for child in stream:
-              budget.check()
+              budget.check(path)
               names.append(child.name)
               if len(names) > 250000 - budget.entries:
-                raise Limit("inventory exceeded 250000 entries")
+                budget.fail("inventory exceeded 250000 entries")
           complete = True
           for child_name in sorted(names):
             child_path = os.path.join(path, child_name)
@@ -1537,7 +1571,7 @@ def clean_files(cfg, emit):
             except FileNotFoundError:
               raise Changed("entry disappeared during planning")
             except OSError as exc:
-              error(child_path, exc)
+              error(child_path, contextual_error(exc, child_path))
               good, child = False, None
             complete = complete and good
             if child is not None:
@@ -1556,7 +1590,7 @@ def clean_files(cfg, emit):
         return whole, node
 
       def describe(node):
-        budget.check()
+        budget.check(node["path"])
         if not node["directory"]:
           emit("REMOVE", node["path"], "")
         elif node["whole"]:
@@ -1573,8 +1607,8 @@ def clean_files(cfg, emit):
           account(node["sig"], node["bytes"])
 
       def remove(fd, node):
-        budget.check()
         path, entry = node["path"], node["name"]
+        budget.check(path)
         try:
           info = os.stat(entry, dir_fd=fd, follow_symlinks=False)
           if signature(info) != node["sig"]:
@@ -1630,7 +1664,7 @@ def clean_files(cfg, emit):
           emit("SKIP", path, str(exc))
           return False
         except OSError as exc:
-          error(path, exc)
+          error(path, contextual_error(exc, path))
           return False
 
       _, selection = plan(parent, name, root, True)
@@ -1671,7 +1705,7 @@ def clean_files(cfg, emit):
       emit("ERROR", root, "limit: " + str(exc), None)
       return
     except OSError as exc:
-      error(root, exc)
+      error(root, contextual_error(exc, root))
     finally:
       if parent is not None:
         os.close(parent)
@@ -1698,7 +1732,6 @@ def section(chip, function):
   except OSError as exc:
     failure(chip, exc.filename or "filesystem operation", exc)
 
-# configured tools and public protections
 def resolve_paths():
   global mounts, npm, go_caches, gopaths, gobin
   global preserve, installations, base_cfg
@@ -1724,22 +1757,31 @@ def resolve_paths():
         for name in ("GOCACHE", "GOMODCACHE", "GOPATH", "GOBIN")
       ):
         raise ValueError("unrecognized Go environment")
-      gopaths = [
-        os.path.normpath(path)
-        for path in values["GOPATH"].split(os.pathsep)
-        if os.path.isabs(path)
-      ]
-      gobin = os.path.normpath(values["GOBIN"]) \
-        if os.path.isabs(values["GOBIN"]) else ""
+      if any("\0" in values[name] for name in (
+        "GOCACHE", "GOMODCACHE", "GOPATH", "GOBIN"
+      )):
+        raise ValueError("invalid Go path")
+      if values["GOCACHE"] != "off" and not os.path.isabs(values["GOCACHE"]):
+        raise ValueError("GOCACHE is neither an absolute path nor off")
+      if not os.path.isabs(values["GOMODCACHE"]):
+        raise ValueError("GOMODCACHE is not an absolute path")
+      paths = values["GOPATH"].split(os.pathsep)
+      if any(not os.path.isabs(path) for path in paths):
+        raise ValueError("GOPATH contains a non-absolute or empty path")
+      if values["GOBIN"] and not os.path.isabs(values["GOBIN"]):
+        raise ValueError("GOBIN is not an absolute path")
+      gopaths = [os.path.normpath(path) for path in paths]
+      gobin = os.path.normpath(values["GOBIN"]) if values["GOBIN"] else ""
       go_caches = [
         os.path.normpath(values[name]) if os.path.isabs(values[name])
         else values[name]
         for name in ("GOCACHE", "GOMODCACHE")
       ]
-    except CommandError as exc:
-      failure("CACHE", exc.command, exc, "command")
-    except ValueError as exc:
-      failure("CACHE", shlex.join(command), exc, "metadata")
+    except (CommandError, ValueError) as exc:
+      raise CommandError(
+        command,
+        "cannot establish Go cache ownership; cleanup not started\n" + str(exc)
+      ) from exc
 
   preserve = [
     root + "/" + name
@@ -1932,6 +1974,7 @@ def browser_jobs(table):
   budget = Budget()
   for browser in ("chromium", "google-chrome"):
     root = config + "/" + browser
+    budget.root = root
     reason = invalid_root(root, base_cfg, table)
     if reason:
       log("CACHE", "SKIP", root, reason)
@@ -1957,7 +2000,6 @@ def browser_jobs(table):
       failure("CACHE", root, exc)
   return jobs
 
-# Tool-owned roots remain reserved even when the tool operation is rejected.
 def cache_plan():
   external = []
   if available("uv"):
@@ -2134,6 +2176,7 @@ def projects():
     return
 
   budget = Budget()
+  budget.root = home
   home_fs = containing(home, mounts)
   if not home_fs or remote(home_fs):
     log("PROJECTS", "SKIP", home, "unknown or network filesystem")
@@ -2152,6 +2195,12 @@ def projects():
   pruned_names = {".git", "node_modules", ".venv", "venv"}
   recent_reason = f"activity within {args.project_age} days"
 
+  def permission_skip(path, exc):
+    global incomplete
+    incomplete = True
+    log("PROJECTS", "SKIP", path,
+        "permission denied: " + display(exc.filename or path), "permission")
+
   def omitted(path):
     return any(within(path, root) for root in excluded)
 
@@ -2162,7 +2211,7 @@ def projects():
     return "protected runtime or data path" if omitted(path) else ""
 
   def info(path):
-    budget.check()
+    budget.check(path)
     return safe_stat(path, mounts)
 
   def names_at(path):
@@ -2204,6 +2253,7 @@ def projects():
   roots = []
   ancestor_markers = {}
   for path in sorted(candidates, key=lambda value: (len(value), value)):
+    budget.root = path
     if any(within(path, root) for root in roots):
       continue
     reason = boundary(path)
@@ -2239,8 +2289,8 @@ def projects():
       continue
     except Changed as exc:
       log("PROJECTS", "SKIP", path, str(exc))
-    except PermissionError:
-      log("PROJECTS", "SKIP", path, "permission denied", "permission")
+    except PermissionError as exc:
+      permission_skip(path, exc)
 
   if not roots:
     log("PROJECTS", "SKIP", "discovery", "no eligible project roots")
@@ -2250,7 +2300,7 @@ def projects():
     result = set()
     with os.scandir("/proc") as stream:
       for entry in stream:
-        budget.check()
+        budget.check("/proc")
         if not entry.name.isdigit():
           continue
         for leaf in ("cwd", "exe"):
@@ -2439,7 +2489,7 @@ def projects():
       return "workspace outside scanned group"
     return ""
 
-  # Git ownership
+  # git ownership
   repositories = {}
   tracking = {}
 
@@ -2510,7 +2560,7 @@ def projects():
     if root not in tracking:
       if not available("git"):
         return "Git unavailable"
-      budget.check()
+      budget.check(root)
       result = query(
         ["git", "-C", root, "ls-files", "-z"], git_env, binary=True,
         timeout=max(0.1, min(30, budget.deadline - time.monotonic()))
@@ -2550,7 +2600,7 @@ def projects():
     pending = [(root, 0)]
     while pending:
       path, depth = pending.pop()
-      budget.entry(depth)
+      budget.entry(depth, path)
       value = info(path)
       if recent_info(value):
         return None, recent_reason
@@ -2585,7 +2635,7 @@ def projects():
 
     while pending:
       directory, repository, node_project, python_project, depth = pending.pop()
-      budget.entry(depth)
+      budget.entry(depth, directory)
       visited.add(directory)
       if recent_info(observed(directory)):
         return [], recent_reason
@@ -2687,11 +2737,16 @@ def projects():
         return [], "workspace member not inspected"
     return candidates, ""
 
+  scanning = None
   pending = [(root, root, 0) for root in reversed(sorted(roots))]
   while pending:
     directory, scope, depth = pending.pop()
+    budget.root = scope
+    if scanning != scope:
+      scanning = scope
+      log("PROJECTS", "SCAN", scope)
     try:
-      budget.entry(depth)
+      budget.entry(depth, directory)
       reason = boundary(directory)
       if reason:
         log("PROJECTS", "SKIP", directory, reason)
@@ -2740,6 +2795,7 @@ def projects():
       if any(within(path, directory) for path in active):
         log("PROJECTS", "SKIP", directory, "currently in use")
         continue
+      budget.check(directory)
       files(
         "PROJECTS", group_jobs,
         deadline=budget.deadline, guards=git_guards
@@ -2750,9 +2806,7 @@ def projects():
     except ValueError as exc:
       log("PROJECTS", "SKIP", directory, str(exc), "metadata")
     except PermissionError as exc:
-      log("PROJECTS", "SKIP", directory,
-          "permission denied: " + display(exc.filename or directory),
-          "permission")
+      permission_skip(directory, exc)
     except FileNotFoundError as exc:
       log("PROJECTS", "SKIP", directory,
           "path or Git metadata unavailable: "
@@ -2762,7 +2816,7 @@ def projects():
     except OSError as exc:
       failure("PROJECTS", exc.filename or directory, exc)
 
-# Docker: selected Unix-socket daemon only; no builder/Buildx commands.
+# docker
 def docker():
   if not available("docker"):
     log("DOCKER", "SKIP", "docker", "not installed")
@@ -2959,12 +3013,14 @@ def counts(counter, order):
     f"{counter[name]} {name}" for name in names if counter[name]
   )
 
-if args.verbose or errors:
+if args.verbose or errors or incomplete:
   print()
 if interrupted:
   print("Interrupted")
 elif aborted:
   print("Aborted")
+if incomplete:
+  print("Incomplete: some project paths could not be inspected")
 if skips:
   print("Skipped: " + counts(skips, (
     "permission", "storage", "active", "recent",
@@ -2976,14 +3032,14 @@ if errors:
     "command", "metadata", "measurement", "internal"
   )))
 action = "selected" if args.dry_run else "unlinked"
-partial = " (partial)" if errors or interrupted or aborted else ""
+partial = " (partial)" if errors or interrupted or aborted or incomplete else ""
 print(f"File allocation {action}: ~{size(file_bytes)}{partial}")
 if not args.dry_run:
   sign = "+" if disk_change >= 0 else ""
   print("Disk free change: " + sign + size(disk_change)
         + (" (partial)" if space_partial else ""))
 
-sys.exit(130 if interrupted else int(bool(errors or aborted)))
+sys.exit(130 if interrupted else int(bool(errors or aborted or incomplete)))
 PY
 )
 
