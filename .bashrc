@@ -1177,52 +1177,41 @@ class Changed(Exception):
   pass
 
 class Limit(Exception):
-  pass
+  def __init__(self, reason, path=None):
+    self.path = path
+    super().__init__(reason)
 
 class Budget:
-  def __init__(self, deadline=None):
-    self.started = time.monotonic()
-    self.deadline = min(
-      self.started + 120,
-      deadline if deadline is not None else float("inf")
-    )
+  def __init__(self, deadline=None, seconds=120):
+    self.seconds = seconds
+    self.deadline = deadline if deadline is not None \
+      else time.monotonic() + seconds
     self.entries = 0
     self.directories = 0
-    self.root = None
     self.path = None
 
   def fail(self, reason):
-    elapsed = time.monotonic() - self.started
-    details = [
-      f"elapsed={elapsed:.1f}s",
-      f"entries={self.entries}",
-      f"directories={self.directories}"
-    ]
-    if self.root is not None:
-      details.append(f"root={self.root!r}")
-    if self.path is not None:
-      details.append(f"path={self.path!r}")
-    raise Limit(reason + " [" + "; ".join(details) + "]")
+    raise Limit(reason, self.path)
 
   def check(self, path=None):
     if path is not None:
       self.path = path
     if time.monotonic() >= self.deadline:
-      self.fail("inventory exceeded its 120-second/phase deadline")
+      self.fail(f"{self.seconds // 60}-minute scan limit reached")
 
   def entry(self, depth=0, path=None):
     self.check(path)
     self.entries += 1
     if self.entries > 250000:
-      self.fail("inventory exceeded 250000 entries")
+      self.fail("250000-entry scan limit reached")
     if depth > 96:
-      self.fail("inventory exceeded depth 96")
+      self.fail("scan depth limit reached")
 
   def directory(self, path=None):
     self.check(path)
     self.directories += 1
     if self.directories > 20000:
-      self.fail("inventory exceeded 20000 directory listings")
+      self.fail("20000-directory scan limit reached")
 
 def inside(path, root):
   return path == root or path.startswith(root.rstrip("/") + "/")
@@ -1434,7 +1423,7 @@ def guards_match(guards, table, budget):
   return True
 
 def clean_files(cfg, emit):
-  budget = Budget(cfg.get("deadline"))
+  budget = Budget(cfg.get("deadline"), cfg.get("seconds", 120))
   failed = set()
   counted = set()
 
@@ -1453,7 +1442,6 @@ def clean_files(cfg, emit):
     root = job["path"]
     parent = None
     try:
-      budget.root = root
       budget.check(root)
       initial = mount_table()
       reason = invalid_root(root, cfg, initial)
@@ -1560,7 +1548,7 @@ def clean_files(cfg, emit):
               budget.check(path)
               names.append(child.name)
               if len(names) > 250000 - budget.entries:
-                budget.fail("inventory exceeded 250000 entries")
+                budget.fail("250000-entry scan limit reached")
           complete = True
           for child_name in sorted(names):
             child_path = os.path.join(path, child_name)
@@ -1702,7 +1690,7 @@ def clean_files(cfg, emit):
     except Changed as exc:
       emit("SKIP", root, str(exc))
     except Limit as exc:
-      emit("ERROR", root, "limit: " + str(exc), None)
+      emit("ERROR", exc.path or root, "limit: " + str(exc), None)
       return
     except OSError as exc:
       error(root, contextual_error(exc, root))
@@ -1724,7 +1712,7 @@ def section(chip, function):
   try:
     function()
   except Limit as exc:
-    failure(chip, "incomplete", exc, "limit")
+    failure(chip, exc.path or "inventory", exc, "limit")
   except Changed as exc:
     log(chip, "SKIP", "inspection", str(exc))
   except CommandError as exc:
@@ -1770,6 +1758,7 @@ def resolve_paths():
         raise ValueError("GOPATH contains a non-absolute or empty path")
       if values["GOBIN"] and not os.path.isabs(values["GOBIN"]):
         raise ValueError("GOBIN is not an absolute path")
+
       gopaths = [os.path.normpath(path) for path in paths]
       gobin = os.path.normpath(values["GOBIN"]) if values["GOBIN"] else ""
       go_caches = [
@@ -1777,11 +1766,10 @@ def resolve_paths():
         else values[name]
         for name in ("GOCACHE", "GOMODCACHE")
       ]
-    except (CommandError, ValueError) as exc:
-      raise CommandError(
-        command,
-        "cannot establish Go cache ownership; cleanup not started\n" + str(exc)
-      ) from exc
+    except CommandError as exc:
+      failure("CACHE", exc.command, exc, "command")
+    except ValueError as exc:
+      failure("CACHE", shlex.join(command), exc, "metadata")
 
   preserve = [
     root + "/" + name
@@ -1859,7 +1847,7 @@ def remember(path, table=None):
     failure("SYSTEM", root, f"cannot measure free space: {exc}", "measurement")
 
 # filesystem jobs
-def files(chip, jobs, elevated=False, deadline=None, guards=None):
+def files(chip, jobs, elevated=False, deadline=None, guards=None, seconds=120):
   selected = unique_jobs(jobs)
   if not selected:
     return
@@ -1872,23 +1860,28 @@ def files(chip, jobs, elevated=False, deadline=None, guards=None):
     if not invalid_root(item["path"], base_cfg, current):
       remember(item["path"], current)
 
-  deadline = min(
-    time.monotonic() + 120,
-    deadline if deadline is not None else float("inf")
-  )
+  if deadline is None:
+    deadline = time.monotonic() + seconds
   if deadline <= time.monotonic():
-    raise Limit("phase deadline reached before filesystem inventory")
-  cfg = dict(base_cfg, jobs=selected, deadline=deadline, guards=guards or {})
+    raise Limit(
+      f"{seconds // 60}-minute scan limit reached", selected[0]["path"]
+    )
+  cfg = dict(
+    base_cfg, jobs=selected, deadline=deadline,
+    seconds=seconds, guards=guards or {}
+  )
 
   def emit(action, path, reason="", error_number=None):
     global file_bytes
     if action == "BYTES":
       file_bytes += int(path)
     elif action == "ERROR":
-      kind = "limit" if reason.startswith("limit:") else (
-        "permission" if error_number in (errno.EACCES, errno.EPERM)
-        else "filesystem"
-      )
+      if reason.startswith("limit: "):
+        kind = "limit"
+        reason = reason[len("limit: "):]
+      else:
+        kind = "permission" if error_number in (errno.EACCES, errno.EPERM) \
+          else "filesystem"
       failure(chip, path, reason, kind)
     else:
       log(chip, action, path, reason)
@@ -1974,7 +1967,6 @@ def browser_jobs(table):
   budget = Budget()
   for browser in ("chromium", "google-chrome"):
     root = config + "/" + browser
-    budget.root = root
     reason = invalid_root(root, base_cfg, table)
     if reason:
       log("CACHE", "SKIP", root, reason)
@@ -2175,8 +2167,7 @@ def projects():
     log("PROJECTS", "SKIP", "discovery", "mount layout changed")
     return
 
-  budget = Budget()
-  budget.root = home
+  budget = Budget(seconds=300)
   home_fs = containing(home, mounts)
   if not home_fs or remote(home_fs):
     log("PROJECTS", "SKIP", home, "unknown or network filesystem")
@@ -2253,7 +2244,6 @@ def projects():
   roots = []
   ancestor_markers = {}
   for path in sorted(candidates, key=lambda value: (len(value), value)):
-    budget.root = path
     if any(within(path, root) for root in roots):
       continue
     reason = boundary(path)
@@ -2741,7 +2731,6 @@ def projects():
   pending = [(root, root, 0) for root in reversed(sorted(roots))]
   while pending:
     directory, scope, depth = pending.pop()
-    budget.root = scope
     if scanning != scope:
       scanning = scope
       log("PROJECTS", "SCAN", scope)
@@ -2797,8 +2786,8 @@ def projects():
         continue
       budget.check(directory)
       files(
-        "PROJECTS", group_jobs,
-        deadline=budget.deadline, guards=git_guards
+        "PROJECTS", group_jobs, deadline=budget.deadline,
+        guards=git_guards, seconds=300
       )
 
     except Changed as exc:
@@ -2961,7 +2950,7 @@ except KeyboardInterrupt:
   interrupted = True
 except Limit as exc:
   aborted = True
-  failure("SYSTEM", "incomplete", exc, "limit")
+  failure("SYSTEM", exc.path or "inventory", exc, "limit")
 except Changed as exc:
   aborted = True
   failure("SYSTEM", "initialization changed", exc, "filesystem")
