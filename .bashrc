@@ -1187,7 +1187,6 @@ class Budget:
     self.deadline = deadline if deadline is not None \
       else time.monotonic() + seconds
     self.entries = 0
-    self.directories = 0
     self.path = None
 
   def fail(self, reason):
@@ -1209,9 +1208,6 @@ class Budget:
 
   def directory(self, path=None):
     self.check(path)
-    self.directories += 1
-    if self.directories > 20000:
-      self.fail("20000-directory scan limit reached")
 
 def inside(path, root):
   return path == root or path.startswith(root.rstrip("/") + "/")
@@ -3002,14 +2998,12 @@ def counts(counter, order):
     f"{counter[name]} {name}" for name in names if counter[name]
   )
 
-if args.verbose or errors or incomplete:
+if args.verbose:
   print()
 if interrupted:
   print("Interrupted")
 elif aborted:
   print("Aborted")
-if incomplete:
-  print("Incomplete: some project paths could not be inspected")
 if skips:
   print("Skipped: " + counts(skips, (
     "permission", "storage", "active", "recent",
