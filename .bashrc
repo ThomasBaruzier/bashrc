@@ -648,7 +648,7 @@ clean() (
     return 1
   }
 
-  command python3 - \
+  command python3 -I - \
     "${DEVICE:-desktop}" "${sudo:-}" "${clean_config-}" "$@" <<'PY'
 import argparse
 import bisect
@@ -2459,10 +2459,12 @@ def storage_reason(path, item):
 
 # projects
 def projects():
+  global incomplete
   if not project_auto and not project_roots:
     log("PROJECTS", "SKIP", "discovery", "no project roots configured")
     return
   if mount_table() != mounts:
+    incomplete = True
     log("PROJECTS", "SKIP", "discovery", "mount layout changed")
     return
 
@@ -3360,6 +3362,7 @@ def projects():
       log("PROJECTS", "SCAN", root)
       discover(root, root)
   except MountLayoutChanged as exc:
+    incomplete = True
     log("PROJECTS", "SKIP", "remaining projects", str(exc))
   finally:
     discover = None
