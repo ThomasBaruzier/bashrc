@@ -2953,12 +2953,24 @@ def projects():
     if actual_root != root or actual_gitdir != gitdir:
       return None, "unsupported Git worktree or metadata mapping"
 
+    pinned = command + [
+      "--git-dir=" + gitdir, "--work-tree=" + root
+    ]
+    case = git_query(
+      pinned + ["config", "--includes", "--bool", "--get", "core.ignorecase"],
+      root
+    )
+    if case.returncode == 0:
+      value = case.stdout.strip()
+      if value == "true":
+        return None, "case-insensitive Git tracking not supported"
+      if value != "false":
+        return None, "unrecognized Git filename case metadata"
+    elif case.returncode != 1 or case.stdout or case.stderr:
+      return None, "cannot determine Git filename case metadata"
+
     result = git_query(
-      command + [
-        "--git-dir=" + gitdir, "--work-tree=" + root,
-        "ls-files", "--full-name", "-z"
-      ],
-      root, binary=True
+      pinned + ["ls-files", "--full-name", "-z"], root, binary=True
     )
     if result.returncode:
       return None, "cannot determine Git tracking"
@@ -2974,23 +2986,54 @@ def projects():
     return names, ""
 
   def tracked(path, repository):
-    if repository is None:
-      return ""
-    root = repository[0]
-    if root not in tracking:
-      tracking[root] = load_tracking(repository)
-    names, reason = tracking[root]
-    if reason:
-      return reason
+    owners = {}
+    if repository is not None:
+      owners[repository[0]] = repository
 
-    relative = os.path.relpath(path, root)
-    index = bisect.bisect_left(names, relative)
-    if index < len(names) and names[index] == relative:
-      return "contains tracked files"
-    prefix = relative + "/"
-    index = bisect.bisect_left(names, prefix)
-    if index < len(names) and names[index].startswith(prefix):
-      return "contains tracked files"
+    lineage = []
+    current = os.path.dirname(path)
+    while True:
+      budget.check(current)
+      lineage.append(current)
+      owner = repositories.get(current)
+      if owner is not None:
+        owners[owner[0]] = owner
+      if current == "/":
+        break
+      current = os.path.dirname(current)
+
+    if not owners:
+      return ""
+    if any(not within(path, root) for root in owners):
+      return "unsupported Git ownership metadata"
+
+    outermost = min(owners, key=len)
+    for current in [path] + lineage:
+      if not within(current, outermost):
+        break
+      budget.check(current)
+      item = containing(current, mounts)
+      if item is None:
+        return "mount information unavailable for Git tracking"
+      if item["type"] in {"vfat", "msdos", "exfat", "ntfs", "ntfs3"}:
+        return "case-insensitive filesystem not supported for Git tracking"
+
+    for root in sorted(owners, key=lambda value: (-len(value), value)):
+      budget.check(root)
+      if root not in tracking:
+        tracking[root] = load_tracking(owners[root])
+      names, reason = tracking[root]
+      if reason:
+        return reason
+
+      relative = os.path.relpath(path, root)
+      index = bisect.bisect_left(names, relative)
+      if index < len(names) and names[index] == relative:
+        return "contains tracked files"
+      prefix = relative + "/"
+      index = bisect.bisect_left(names, prefix)
+      if index < len(names) and names[index].startswith(prefix):
+        return "contains tracked files"
     return ""
 
   # artifact inventory
