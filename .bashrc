@@ -642,7 +642,6 @@ sz() {
   fi
 }
 
-# cleaning
 clean() (
   command -v python3 >/dev/null 2>&1 || {
     printf 'clean requires python3\n' >&2
@@ -669,9 +668,9 @@ import sys
 import time
 import traceback
 
+# requirements
 if sys.version_info < (3, 8):
   sys.exit("clean requires Python 3.8+")
-
 if not all(hasattr(os, name) for name in ("O_PATH", "O_NOFOLLOW", "O_DIRECTORY")):
   sys.exit("clean requires Linux O_PATH and no-follow directory operations")
 if not {os.open, os.stat, os.unlink, os.rmdir} <= os.supports_dir_fd:
@@ -684,27 +683,35 @@ try:
 except ImportError:
   tomllib = None
 
-# arguments
 device, sudo, raw_config = sys.argv[1:4]
 
+# cli args
 def age_days(value):
   try:
-    days = int(value)
+    value = int(value)
   except ValueError:
     raise argparse.ArgumentTypeError("age must be a nonnegative integer")
-  if days < 0:
+  if value < 0:
     raise argparse.ArgumentTypeError("age must be a nonnegative integer")
-  return days
+  return value
 
 parser = argparse.ArgumentParser(prog="clean")
-parser.add_argument("-d", "--docker", action="store_true",
-                    help="prune the selected Unix-socket Docker daemon; no volumes")
-parser.add_argument("-p", "--projects", action="store_true",
-                    help="clean inactive projects in configured locations")
-parser.add_argument("-n", "--dry-run", action="store_true",
-                    help="preview selections; implies verbose")
-parser.add_argument("-v", "--verbose", action="store_true",
-                    help="show scan, skip, remove and run actions")
+parser.add_argument(
+  "-d", "--docker", action="store_true",
+  help="prune the selected Unix-socket Docker daemon; no volumes"
+)
+parser.add_argument(
+  "-p", "--projects", action="store_true",
+  help="clean inactive projects in configured locations"
+)
+parser.add_argument(
+  "-n", "--dry-run", action="store_true",
+  help="preview selections; implies verbose"
+)
+parser.add_argument(
+  "-v", "--verbose", action="store_true",
+  help="show scan, skip, remove and run actions"
+)
 parser.add_argument(
   "--age", type=age_days, metavar="DAYS",
   help="override age-controlled thresholds except journald; "
@@ -735,8 +742,9 @@ for name, (default, _) in age_settings.items():
     setattr(args, attribute, args.age if args.age is not None else default)
 args.journal_age = max(1, args.journal_age)
 
+# runtime state
 home = os.path.realpath(os.path.expanduser("~"))
-priv = [sudo] if sudo and os.geteuid() and device != "phone" else []
+priv = [sudo, "-n"] if sudo and os.geteuid() and device != "phone" else []
 started = time.time()
 cutoff = started - args.project_age * 86400
 colored = sys.stdout.isatty() and "NO_COLOR" not in os.environ
@@ -744,9 +752,7 @@ errors = collections.Counter()
 skips = collections.Counter()
 reported = set()
 file_bytes = 0
-interrupted = False
-aborted = False
-incomplete = False
+interrupted = aborted = incomplete = False
 
 def within(path, root):
   return path == root or path.startswith(root.rstrip("/") + "/")
@@ -778,9 +784,7 @@ def skip_category(reason):
     return "protected"
   if "not installed" in text or "daemon unavailable" in text:
     return "unavailable"
-  if "metadata" in text:
-    return "metadata"
-  return "unsupported"
+  return "metadata" if "metadata" in text else "unsupported"
 
 def log(chip, action, value, reason="", category=None):
   value = str(value)
@@ -800,7 +804,7 @@ def log(chip, action, value, reason="", category=None):
     "SCAN": 36, "SKIP": 34, "RUN": 32, "REMOVE": 31, "ERROR": 31
   }.get(action)
   if colored and code:
-    padded = f"\033[{code}m{label}\033[0m" + " " * (14 - len(label))
+    padded = f"\033[{code}m{label}\033[0m" + " " * max(0, 14 - len(label))
   suffix = f" ({reason})" if reason else ""
   print(f"{'[' + chip + ']':<10} {padded} {display(value)}{suffix}", flush=True)
 
@@ -820,35 +824,76 @@ def failure(chip, value, reason, kind=None):
 def available(name):
   return shutil.which(name) is not None
 
-# subprocesses
+# commands
 class CommandError(Exception):
   def __init__(self, command, message):
     self.command = shlex.join(command)
     super().__init__(message)
 
 def stop_owned(process):
-  try:
-    os.killpg(process.pid, signal.SIGTERM)
-  except ProcessLookupError:
-    pass
-  try:
-    process.wait(timeout=3)
-  except subprocess.TimeoutExpired:
+  def signal_group(number):
     try:
-      os.killpg(process.pid, signal.SIGKILL)
+      os.killpg(process.pid, number)
+      return True
     except ProcessLookupError:
-      pass
-    process.wait()
+      return False
+    except PermissionError as exc:
+      if number:
+        print(
+          f"clean: cannot signal process group {process.pid}: {exc}",
+          file=sys.stderr, flush=True
+        )
+      return True
+
+  alive = True
+  try:
+    alive = signal_group(signal.SIGTERM)
+    deadline = time.monotonic() + 3
+    while alive:
+      remaining = deadline - time.monotonic()
+      if remaining <= 0:
+        break
+      time.sleep(min(0.1, remaining))
+      alive = signal_group(0)
+  finally:
+    if alive:
+      signal_group(signal.SIGKILL)
+    try:
+      process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+      print(
+        f"clean: process {process.pid} has not exited after cancellation",
+        file=sys.stderr, flush=True
+      )
 
 def capture(command, env=None, binary=False, input_text=None,
-            timeout=30, limit=8 * 1024 * 1024, tail=False):
+            timeout=30, limit=8 * 1024 * 1024, tail=False,
+            on_stdout=None):
   process = None
   selector = selectors.DefaultSelector()
   buffers = {"out": bytearray(), "err": bytearray()}
-  total = 0
   pending = memoryview(input_text.encode()) if input_text is not None else None
-  offset = 0
+  offset = total = 0
   deadline = time.monotonic() + timeout if timeout is not None else None
+
+  def deliver_stdout(final=False):
+    buffer = buffers["out"]
+    consumed = 0
+    while True:
+      end = buffer.find(b"\n", consumed)
+      if end < 0:
+        break
+      if end - consumed > 1024 * 1024:
+        raise CommandError(command, "worker record exceeded 1 MiB")
+      on_stdout(bytes(buffer[consumed:end]))
+      consumed = end + 1
+    if consumed:
+      del buffer[:consumed]
+    if len(buffer) > 1024 * 1024:
+      raise CommandError(command, "worker record exceeded 1 MiB")
+    if final and buffer:
+      on_stdout(bytes(buffer))
+      buffer.clear()
 
   try:
     process = subprocess.Popen(
@@ -869,15 +914,14 @@ def capture(command, env=None, binary=False, input_text=None,
     while selector.get_map():
       remaining = None if deadline is None else deadline - time.monotonic()
       if remaining is not None and remaining <= 0:
-        raise CommandError(command, f"read-only query exceeded {timeout:g}s")
+        raise CommandError(command, f"query exceeded {timeout:g}s")
       for key, _ in selector.select(
         0.25 if remaining is None else min(0.25, remaining)
       ):
         stream, name = key.fileobj, key.data
         if name == "in":
           try:
-            written = os.write(stream.fileno(), pending[offset:offset + 65536])
-            offset += written
+            offset += os.write(stream.fileno(), pending[offset:offset + 65536])
           except BlockingIOError:
             continue
           except BrokenPipeError:
@@ -892,29 +936,35 @@ def capture(command, env=None, binary=False, input_text=None,
         except BlockingIOError:
           continue
         if not block:
+          if name == "out" and on_stdout is not None:
+            deliver_stdout(final=True)
           selector.unregister(stream)
           stream.close()
           continue
+        if name == "out" and on_stdout is not None:
+          buffers["out"].extend(block)
+          deliver_stdout()
+          continue
+
         total += len(block)
         buffers[name].extend(block)
         if tail:
           if len(buffers[name]) > limit:
             del buffers[name][:-limit]
         elif total > limit:
-          raise CommandError(command, f"read-only output exceeded {limit} bytes")
+          raise CommandError(command, f"query output exceeded {limit} bytes")
 
     remaining = None if deadline is None else max(0, deadline - time.monotonic())
     try:
       status = process.wait(timeout=remaining)
     except subprocess.TimeoutExpired:
-      raise CommandError(command, f"read-only query exceeded {timeout:g}s")
+      raise CommandError(command, f"query exceeded {timeout:g}s")
 
     output, diagnostics = bytes(buffers["out"]), bytes(buffers["err"])
     if not binary:
       output = output.decode(errors="surrogateescape")
       diagnostics = diagnostics.decode(errors="surrogateescape")
     return subprocess.CompletedProcess(command, status, output, diagnostics)
-
   except OSError as exc:
     if process is not None:
       stop_owned(process)
@@ -952,9 +1002,11 @@ def run(chip, command, reason="", empty_screen=False):
     if result.returncode and not (
       empty_screen and "No Sockets found" in message
     ):
-      failure(chip, shlex.join(command),
-              f"exit {result.returncode}" + (f"\n{message}" if message else ""),
-              "command")
+      failure(
+        chip, shlex.join(command),
+        f"exit {result.returncode}" + (f"\n{message}" if message else ""),
+        "command"
+      )
   except CommandError as exc:
     failure(chip, exc.command, exc, "command")
 
@@ -1005,7 +1057,7 @@ def unique_jobs(jobs):
     result[path] = dict(item)
   return sorted(result.values(), key=lambda item: item["path"])
 
-# private policy
+# policy
 def parse_policy(text):
   if not text.strip():
     raise ValueError(
@@ -1050,8 +1102,7 @@ def parse_policy(text):
     return value
 
   roots = {
-    "home": home, "cache": cache, "config": config,
-    "data": data, "state": state
+    "home": home, "cache": cache, "config": config, "data": data, "state": state
   }
 
   def base(name):
@@ -1087,8 +1138,7 @@ def parse_policy(text):
   jobs = []
   leaves = (
     "Cache", "Code Cache", "GPUCache", "CachedData",
-    "CachedExtensionVSIXs", "DawnCache",
-    "DawnWebGPUCache", "DawnGraphiteCache"
+    "CachedExtensionVSIXs", "DawnCache", "DawnWebGPUCache", "DawnGraphiteCache"
   )
   for recipe in ("electron", "vscode"):
     for app in strings(policy.get(recipe, []), recipe):
@@ -1096,8 +1146,7 @@ def parse_policy(text):
         raise ValueError(f"{recipe}: expected an application directory name")
       selected = leaves + (("logs",) if recipe == "vscode" else ())
       jobs.extend(
-        job(os.path.join(config, app, leaf), args.cache_age,
-            directory_root=True)
+        job(os.path.join(config, app, leaf), args.cache_age, directory_root=True)
         for leaf in selected
       )
 
@@ -1112,10 +1161,9 @@ def parse_policy(text):
     paths = strings(rule["paths"], label + ".paths")
     if not paths:
       raise ValueError(f"{label}: paths must not be empty")
-    kind = rule["kind"]
+    kind, age = rule["kind"], rule["age"]
     if kind not in ("contents", "files"):
       raise ValueError(f"{label}: kind must be contents or files")
-    age = rule["age"]
     if type(age) is int and age == 0:
       days = 0
     elif isinstance(age, str) and age in ("cache", "log"):
@@ -1149,8 +1197,10 @@ def parse_policy(text):
           raise ValueError(f"{label}: invalid regex: {exc}") from exc
         options["name_regex"] = value
 
-    jobs.extend(job(os.path.join(parent, relative(path)), days, **options)
-                for path in paths)
+    jobs.extend(
+      job(os.path.join(parent, relative(path)), days, **options)
+      for path in paths
+    )
 
   return (
     list(dict.fromkeys(protected)), automatic,
@@ -1163,6 +1213,7 @@ try:
 except ValueError as exc:
   sys.exit(f"clean: invalid configuration: {exc}")
 
+# filesystem engine
 shared = r'''
 import errno
 import fnmatch
@@ -1173,7 +1224,11 @@ import stat
 import sys
 import time
 
+# scan state
 class Changed(Exception):
+  pass
+
+class MountLayoutChanged(Changed):
   pass
 
 class Limit(Exception):
@@ -1186,7 +1241,6 @@ class Budget:
     self.seconds = seconds
     self.deadline = deadline if deadline is not None \
       else time.monotonic() + seconds
-    self.entries = 0
     self.path = None
 
   def fail(self, reason):
@@ -1200,15 +1254,21 @@ class Budget:
 
   def entry(self, depth=0, path=None):
     self.check(path)
-    self.entries += 1
-    if self.entries > 250000:
-      self.fail("250000-entry scan limit reached")
     if depth > 96:
       self.fail("scan depth limit reached")
 
-  def directory(self, path=None):
-    self.check(path)
+class Node:
+  __slots__ = ("name", "sig", "children", "bytes", "whole", "keep")
 
+  def __init__(self, name, sig):
+    self.name = name
+    self.sig = sig
+    self.children = None
+    self.bytes = None
+    self.whole = False
+    self.keep = False
+
+# filesystem helpers
 def inside(path, root):
   return path == root or path.startswith(root.rstrip("/") + "/")
 
@@ -1224,6 +1284,7 @@ def contextual_error(exc, path):
     path = filename
   return OSError(exc.errno, exc.strerror or str(exc), path)
 
+# mounts
 def mount_table():
   result = {}
   with open("/proc/self/mountinfo") as stream:
@@ -1233,16 +1294,20 @@ def mount_table():
       def decode(value):
         return re.sub(r"\\([0-7]{3})",
           lambda match: chr(int(match[1], 8)), value)
-      path = decode(fields[4])
-      result[path] = {
+      result[decode(fields[4])] = {
         "id": fields[0], "dev": fields[2],
         "root": decode(fields[3]), "type": fields[separator + 1]
       }
   return result
 
 def containing(path, table):
-  roots = [root for root in table if inside(path, root)]
-  return table[max(roots, key=len)] if roots else None
+  path = "/" + os.path.normpath(path).lstrip("/")
+  while True:
+    if path in table:
+      return table[path]
+    if path == "/":
+      return None
+    path = os.path.dirname(path)
 
 def remote(item):
   return item["type"] in {
@@ -1268,6 +1333,7 @@ def check_mount(fd, path, table):
   if mount_id(fd) != expected_mount(path, table):
     raise Changed("mount identity changed")
 
+# descriptors
 def open_component(name, flags, parent=None):
   try:
     return os.open(name, flags | os.O_NOFOLLOW, dir_fd=parent)
@@ -1304,69 +1370,143 @@ def anchor(path, table):
 def parent_fd(path, table):
   return anchor(os.path.dirname(path), table)
 
-def safe_stat(path, table):
-  if path == "/":
-    fd = anchor(path, table)
-    try:
-      return os.fstat(fd)
-    except OSError as exc:
-      raise contextual_error(exc, path) from exc
-    finally:
-      os.close(fd)
+def checked_stat_at(parent, name, path, table, observed=None):
   expected_mount(path, table)
-  parent = parent_fd(path, table)
-  try:
-    fd = open_component(os.path.basename(path), os.O_PATH, parent)
-    try:
-      check_mount(fd, path, table)
-      return os.fstat(fd)
-    finally:
-      os.close(fd)
-  except OSError as exc:
-    raise contextual_error(exc, path) from exc
-  finally:
-    os.close(parent)
-
-def read_directory(path, table, budget):
-  budget.directory(path)
-  base = anchor(path, table)
   fd = None
   try:
-    before = signature(os.fstat(base))
-    fd = open_component(".", os.O_RDONLY | os.O_DIRECTORY, base)
+    fd = open_component(name, os.O_PATH, parent)
     check_mount(fd, path, table)
-    names = []
-    with os.scandir(fd) as stream:
-      for entry in stream:
-        budget.entry(path=path)
-        names.append(entry.name)
-    if signature(os.fstat(base)) != before:
-      raise Changed("directory changed during inventory")
-    return sorted(names)
+    value = os.fstat(fd)
+    if observed is not None and signature(value) != signature(observed):
+      raise Changed("entry changed during mount verification")
+    return value
   except OSError as exc:
     raise contextual_error(exc, path) from exc
   finally:
     if fd is not None:
       os.close(fd)
-    os.close(base)
 
-def read_regular(path, table, budget, maximum=1024 * 1024):
+def safe_stat(path, table):
+  if path == "/":
+    fd = anchor(path, table)
+    try:
+      return os.fstat(fd)
+    finally:
+      os.close(fd)
+  parent = parent_fd(path, table)
+  try:
+    return checked_stat_at(parent, os.path.basename(path), path, table)
+  finally:
+    os.close(parent)
+
+def check_link(parent, name, fd, path):
+  try:
+    current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    if signature(current)[:3] != signature(os.fstat(fd))[:3]:
+      raise Changed("ancestor replaced during inspection")
+  except FileNotFoundError as exc:
+    raise Changed("ancestor disappeared during inspection") from exc
+  except OSError as exc:
+    raise contextual_error(exc, path) from exc
+
+# directories
+class Directory:
+  def __init__(self, path, table, budget, parent=None, expected=None):
+    self.path, self.table, self.budget = path, table, budget
+    self.parent = parent
+    self.name = os.path.basename(path)
+    self.fd = None
+    budget.check(path)
+    try:
+      if parent is None:
+        base = anchor(path, table)
+        try:
+          self.fd = open_component(".", os.O_RDONLY | os.O_DIRECTORY, base)
+        finally:
+          os.close(base)
+      else:
+        expected_mount(path, table)
+        self.fd = open_component(
+          self.name, os.O_RDONLY | os.O_DIRECTORY, parent.fd
+        )
+      check_mount(self.fd, path, table)
+      self.info = os.fstat(self.fd)
+      self.sig = signature(self.info)
+      if expected is not None and self.sig != signature(expected):
+        raise Changed("directory changed before inspection")
+    except BaseException as exc:
+      if self.fd is not None:
+        os.close(self.fd)
+        self.fd = None
+      if isinstance(exc, OSError):
+        raise contextual_error(exc, path) from exc
+      raise
+
+  def __enter__(self):
+    return self
+
+  def __exit__(self, kind, value, tb):
+    try:
+      if kind is None and self.parent is not None:
+        check_link(self.parent.fd, self.name, self.fd, self.path)
+    finally:
+      os.close(self.fd)
+
+  def unchanged(self):
+    self.budget.check(self.path)
+    if signature(os.fstat(self.fd)) != self.sig:
+      raise Changed("directory changed during inventory")
+
+  def scan(self, entries=False):
+    self.unchanged()
+    try:
+      result = []
+      with os.scandir(self.fd) as stream:
+        for entry in stream:
+          self.budget.check(self.path)
+          result.append(entry if entries else entry.name)
+      self.unchanged()
+      if entries:
+        result.sort(key=lambda entry: entry.name)
+      else:
+        result.sort()
+      self.budget.check(self.path)
+      return result
+    except OSError as exc:
+      raise contextual_error(exc, self.path) from exc
+
+  def stat(self, name):
+    path = os.path.join(self.path, name)
+    self.budget.check(path)
+    try:
+      value = os.stat(name, dir_fd=self.fd, follow_symlinks=False)
+      if not stat.S_ISDIR(value.st_mode):
+        if path in self.table:
+          raise Changed("mounted file")
+        if value.st_dev != self.info.st_dev:
+          value = checked_stat_at(self.fd, name, path, self.table, value)
+      return value
+    except OSError as exc:
+      raise contextual_error(exc, path) from exc
+
+def read_directory(path, table, budget):
+  with Directory(path, table, budget) as directory:
+    return directory.scan()
+
+# metadata reads
+def read_at(parent, name, path, table, budget, maximum=1024 * 1024):
   budget.check(path)
   expected_mount(path, table)
-  parent = parent_fd(path, table)
   fd = None
   try:
-    fd = open_component(
-      os.path.basename(path), os.O_RDONLY | os.O_NONBLOCK, parent
-    )
+    fd = open_component(name, os.O_RDONLY | os.O_NONBLOCK, parent)
     check_mount(fd, path, table)
     before = os.fstat(fd)
     if not stat.S_ISREG(before.st_mode):
       raise Changed("metadata is not a regular file")
     if before.st_size > maximum:
       budget.fail("metadata file exceeds 1 MiB")
-    parts = []
-    size = 0
+    parts, size = [], 0
     while True:
       budget.check(path)
       block = os.read(fd, min(65536, maximum + 1 - size))
@@ -1384,7 +1524,107 @@ def read_regular(path, table, budget, maximum=1024 * 1024):
   finally:
     if fd is not None:
       os.close(fd)
+
+def read_regular(path, table, budget, maximum=1024 * 1024):
+  parent = parent_fd(path, table)
+  try:
+    return read_at(parent, os.path.basename(path), path, table, budget, maximum)
+  finally:
     os.close(parent)
+
+# validation
+class PathCursor:
+  def __init__(self, table, budget):
+    self.table, self.budget = table, budget
+    self.parts = []
+    self.fds = [anchor("/", table)]
+
+  def __enter__(self):
+    return self
+
+  def pop(self, validate=True):
+    fd = self.fds.pop()
+    name = self.parts.pop()
+    path = "/" + "/".join(self.parts + [name])
+    try:
+      if validate:
+        check_link(self.fds[-1], name, fd, path)
+    finally:
+      os.close(fd)
+
+  def __exit__(self, kind, value, tb):
+    try:
+      while self.parts:
+        self.pop(validate=kind is None)
+    finally:
+      while self.fds:
+        os.close(self.fds.pop())
+
+  def directory(self, path):
+    parts = [part for part in path.split("/") if part]
+    common = 0
+    while common < min(len(parts), len(self.parts)) \
+        and parts[common] == self.parts[common]:
+      common += 1
+    while len(self.parts) > common:
+      self.pop()
+    for name in parts[common:]:
+      current = "/" + "/".join(self.parts + [name])
+      self.budget.check(current)
+      expected_mount(current, self.table)
+      try:
+        fd = open_component(name, os.O_PATH | os.O_DIRECTORY, self.fds[-1])
+      except OSError as exc:
+        raise contextual_error(exc, current) from exc
+      try:
+        check_mount(fd, current, self.table)
+      except BaseException:
+        os.close(fd)
+        raise
+      self.parts.append(name)
+      self.fds.append(fd)
+    return self.fds[-1]
+
+def guards_match(guards, table, budget):
+  if not guards:
+    return True
+  groups = {}
+  for path, expected in guards.items():
+    budget.check(path)
+    groups.setdefault(os.path.dirname(path), []).append((path, expected))
+  parents = list(groups)
+  budget.check()
+  parents.sort(key=lambda path: path.split("/"))
+  budget.check()
+
+  with PathCursor(table, budget) as cursor:
+    for parent in parents:
+      budget.check(parent)
+      try:
+        fd = cursor.directory(parent)
+      except FileNotFoundError:
+        if any(expected is not None for _, expected in groups[parent]):
+          return False
+        continue
+      parent_dev = os.fstat(fd).st_dev
+      for path, expected in groups[parent]:
+        budget.check(path)
+        try:
+          if path == "/":
+            value = os.fstat(fd)
+          else:
+            name = os.path.basename(path)
+            value = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            if path in table or value.st_dev != parent_dev:
+              value = checked_stat_at(fd, name, path, table, value)
+          current = signature(value)
+        except FileNotFoundError:
+          current = None
+        except OSError as exc:
+          raise contextual_error(exc, path) from exc
+        if current != expected:
+          return False
+  return True
 
 def invalid_root(path, cfg, table, external=False):
   if not os.path.isabs(path) or path == "/" or inside(cfg["home"], path):
@@ -1407,39 +1647,34 @@ def invalid_root(path, cfg, table, external=False):
       return "symlinked path or ancestor"
   return ""
 
-def guards_match(guards, table, budget):
-  for path, expected in guards.items():
-    budget.check(path)
-    try:
-      current = signature(safe_stat(path, table))
-    except FileNotFoundError:
-      current = None
-    if current != expected:
-      return False
-  return True
-
+# file cleanup
 def clean_files(cfg, emit):
   budget = Budget(cfg.get("deadline"), cfg.get("seconds", 120))
-  failed = set()
-  counted = set()
+  failed, counted = set(), set()
+  expected_layout = cfg.get("expected_mounts")
+
+  def check_layout(table):
+    if expected_layout is not None and table != expected_layout:
+      raise MountLayoutChanged("mount layout changed")
 
   def error(path, exc):
     if path not in failed:
       failed.add(path)
       emit("ERROR", path, str(exc), getattr(exc, "errno", None))
 
-  def account(sig, size):
-    key = tuple(sig[:2])
+  def account(node, size):
+    key = tuple(node.sig[:2])
     if key not in counted:
       counted.add(key)
       emit("BYTES", size)
 
   for job in cfg["jobs"]:
-    root = job["path"]
-    parent = None
+    root, parent = job["path"], None
+    plan = describe = estimate = remove = selection = None
     try:
       budget.check(root)
       initial = mount_table()
+      check_layout(initial)
       reason = invalid_root(root, cfg, initial)
       if reason:
         emit("SKIP", root, reason)
@@ -1463,103 +1698,123 @@ def clean_files(cfg, emit):
 
       root_mount = expected_mount(root, initial)
       excludes = cfg["preserve"] + job.get("exclude", [])
+      exclude_names = job.get("exclude_names", [])
       threshold = cfg["now"] - job["days"] * 86400
+      patterns = job.get("patterns", [])
       expression = job.get("name_regex")
       matcher = re.compile(expression).fullmatch if expression else None
-      frozen = job.get("snapshot")
-      seen = set()
 
       def excluded(path):
         if any(inside(path, item) for item in excludes):
           return True
-        first = os.path.relpath(path, root).split(os.sep, 1)[0]
-        return any(fnmatch.fnmatchcase(first, pattern)
-                   for pattern in job.get("exclude_names", []))
+        if exclude_names:
+          first = os.path.relpath(path, root).split(os.sep, 1)[0]
+          return any(fnmatch.fnmatchcase(first, pattern)
+                     for pattern in exclude_names)
+        return False
 
       def eligible(path, info):
-        stamp = info.st_mtime
-        if job.get("access", True):
-          stamp = max(stamp, info.st_atime)
+        stamp = max(info.st_mtime, info.st_atime) \
+          if job.get("access", True) else info.st_mtime
         if job["days"] and stamp >= threshold:
           return False
         basename = os.path.basename(path)
-        patterns = job.get("patterns", [])
         if patterns and not any(
           fnmatch.fnmatchcase(basename, pattern) for pattern in patterns
         ):
           return False
         return matcher is None or matcher(basename) is not None
 
-      def plan(fd, entry, path, top=False, depth=0):
+      # selection
+      def plan(fd, entry, path, top=False, depth=0, frozen=None):
         budget.entry(depth, path)
         if excluded(path):
+          if frozen is not None:
+            raise Changed("project artifact overlaps protected data")
           return False, None
         if not top and path in initial:
+          if frozen is not None:
+            raise Changed("project artifact contains a mount")
           emit("SKIP", path, "nested mount")
           return False, None
 
         info = os.stat(entry, dir_fd=fd, follow_symlinks=False)
         sig = signature(info)
-        if frozen is not None:
-          relative = os.path.relpath(path, root)
-          if frozen.get(relative) != sig:
-            raise Changed("project artifact changed since inspection")
-          seen.add(relative)
+        if frozen is not None and frozen.sig != sig:
+          raise Changed("project artifact changed since inspection")
         mode = info.st_mode
-        node = {
-          "name": entry, "path": path, "sig": sig,
-          "directory": stat.S_ISDIR(mode)
-        }
 
         if stat.S_ISREG(mode) or stat.S_ISLNK(mode):
           allowed = stat.S_ISREG(mode) or (
             not top and job.get("links", True)
           )
           if not allowed or not eligible(path, info):
+            if frozen is not None:
+              raise Changed("project artifact no longer eligible")
             return False, None
           if info.st_dev != identity.st_dev:
+            if frozen is not None:
+              raise Changed("project artifact filesystem changed")
             emit("SKIP", path, "filesystem boundary")
             return False, None
-          node["bytes"] = info.st_blocks * 512 if stat.S_ISREG(mode) else None
+          node = frozen if frozen is not None else Node(entry, sig)
+          node.bytes = info.st_blocks * 512 if stat.S_ISREG(mode) else None
           return True, node
 
         if not stat.S_ISDIR(mode):
+          if frozen is not None:
+            raise Changed("project artifact contains a special file")
           return False, None
         if not top and not job.get("recursive", True):
           return False, None
 
-        budget.directory(path)
         child_fd = open_component(entry, os.O_RDONLY | os.O_DIRECTORY, fd)
         try:
           if signature(os.fstat(child_fd)) != sig:
             raise Changed("directory changed during planning")
           if mount_id(child_fd) != root_mount:
+            if frozen is not None:
+              raise Changed("project artifact mount changed")
             emit("SKIP", path, "nested or changed mount")
             return False, None
 
-          children = []
           names = []
           with os.scandir(child_fd) as stream:
             for child in stream:
               budget.check(path)
               names.append(child.name)
-              if len(names) > 250000 - budget.entries:
-                budget.fail("250000-entry scan limit reached")
+          budget.check(path)
+          names.sort()
+          budget.check(path)
+
+          if frozen is not None:
+            children = frozen.children
+            if children is None or len(names) != len(children) or any(
+              name != child.name for name, child in zip(names, children)
+            ):
+              raise Changed("project artifact entries changed since inspection")
+          else:
+            children = []
+
           complete = True
-          for child_name in sorted(names):
+          for index, child_name in enumerate(names):
             child_path = os.path.join(path, child_name)
             try:
               good, child = plan(
-                child_fd, child_name, child_path, depth=depth + 1
+                child_fd, child_name, child_path, depth=depth + 1,
+                frozen=children[index] if frozen is not None else None
               )
             except FileNotFoundError:
               raise Changed("entry disappeared during planning")
             except OSError as exc:
+              if frozen is not None:
+                raise contextual_error(exc, child_path) from exc
               error(child_path, contextual_error(exc, child_path))
               good, child = False, None
             complete = complete and good
-            if child is not None:
+            if frozen is None and child is not None:
               children.append(child)
+
           if signature(os.fstat(child_fd)) != sig:
             raise Changed("directory changed during planning")
         finally:
@@ -1568,49 +1823,55 @@ def clean_files(cfg, emit):
         keep = top and job.get("keep", True)
         old = not job["days"] or info.st_mtime < threshold
         whole = complete and job.get("directories", True) and (bool(names) or old)
+        if frozen is not None and not whole:
+          raise Changed("project artifact could not be fully validated")
         if not children and (keep or not whole):
           return False, None
-        node.update(children=children, whole=whole, keep=keep)
+        node = frozen if frozen is not None else Node(entry, sig)
+        node.children, node.whole, node.keep = children, whole, keep
         return whole, node
 
-      def describe(node):
-        budget.check(node["path"])
-        if not node["directory"]:
-          emit("REMOVE", node["path"], "")
-        elif node["whole"]:
-          emit("REMOVE", node["path"], "contents" if node["keep"] else "")
+      # preview
+      def describe(node, path):
+        budget.check(path)
+        if node.children is None:
+          emit("REMOVE", path, "")
+        elif node.whole:
+          emit("REMOVE", path, "contents" if node.keep else "")
         else:
-          for child in node["children"]:
-            describe(child)
+          for child in node.children:
+            describe(child, os.path.join(path, child.name))
 
-      def estimate(node):
-        if node["directory"]:
-          for child in node["children"]:
-            estimate(child)
-        elif node["bytes"] is not None:
-          account(node["sig"], node["bytes"])
+      def estimate(node, path):
+        budget.check(path)
+        if node.children is not None:
+          for child in node.children:
+            estimate(child, os.path.join(path, child.name))
+        elif node.bytes is not None:
+          account(node, node.bytes)
 
-      def remove(fd, node):
-        path, entry = node["path"], node["name"]
+      # removal
+      def remove(fd, node, path):
+        entry = node.name
         budget.check(path)
         try:
           info = os.stat(entry, dir_fd=fd, follow_symlinks=False)
-          if signature(info) != node["sig"]:
+          if signature(info) != node.sig:
             emit("SKIP", path, "changed since selection")
             return False
 
-          if not node["directory"]:
+          if node.children is None:
             if not eligible(path, info):
               emit("SKIP", path, "no longer eligible")
               return False
             os.unlink(entry, dir_fd=fd)
             if stat.S_ISREG(info.st_mode):
-              account(node["sig"], info.st_blocks * 512)
+              account(node, info.st_blocks * 512)
             return True
 
           child_fd = open_component(entry, os.O_RDONLY | os.O_DIRECTORY, fd)
           try:
-            if signature(os.fstat(child_fd)) != node["sig"]:
+            if signature(os.fstat(child_fd)) != node.sig:
               emit("SKIP", path, "directory changed since selection")
               return False
             if mount_id(child_fd) != root_mount:
@@ -1618,16 +1879,16 @@ def clean_files(cfg, emit):
               return False
 
             complete = True
-            for child in node["children"]:
-              if not remove(child_fd, child):
+            for child in node.children:
+              if not remove(child_fd, child, os.path.join(path, child.name)):
                 complete = False
-            if not complete or not node["whole"]:
+            if not complete or not node.whole:
               return False
-            if node["keep"]:
+            if node.keep:
               return True
 
             current = os.stat(entry, dir_fd=fd, follow_symlinks=False)
-            if signature(current)[:3] != node["sig"][:3]:
+            if signature(current)[:3] != node.sig[:3]:
               emit("SKIP", path, "directory replaced during removal")
               return False
             try:
@@ -1640,7 +1901,6 @@ def clean_files(cfg, emit):
             return True
           finally:
             os.close(child_fd)
-
         except FileNotFoundError:
           emit("SKIP", path, "entry disappeared")
           return False
@@ -1651,13 +1911,13 @@ def clean_files(cfg, emit):
           error(path, contextual_error(exc, path))
           return False
 
-      _, selection = plan(parent, name, root, True)
-      if frozen is not None and seen != set(frozen):
-        raise Changed("project artifact changed or could not be fully inspected")
+      # final checks
+      _, selection = plan(parent, name, root, True, frozen=job.get("snapshot"))
       if selection is None:
         continue
 
       current = mount_table()
+      check_layout(current)
       relevant = {
         path for path in set(initial) | set(current)
         if inside(root, path) or inside(path, root)
@@ -1675,22 +1935,31 @@ def clean_files(cfg, emit):
       finally:
         os.close(fresh_parent)
 
-      describe(selection)
+      describe(selection, root)
       if cfg["dry"]:
-        estimate(selection)
+        estimate(selection, root)
       else:
-        remove(parent, selection)
+        remove(parent, selection, root)
+      if expected_layout is not None:
+        check_layout(mount_table())
 
+    except MountLayoutChanged:
+      raise
     except FileNotFoundError:
       continue
     except Changed as exc:
+      if expected_layout is not None:
+        check_layout(mount_table())
       emit("SKIP", root, str(exc))
     except Limit as exc:
+      if expected_layout is not None:
+        raise
       emit("ERROR", exc.path or root, "limit: " + str(exc), None)
       return
     except OSError as exc:
       error(root, contextual_error(exc, root))
     finally:
+      plan = describe = estimate = remove = selection = None
       if parent is not None:
         os.close(parent)
 '''
@@ -1698,12 +1967,14 @@ def clean_files(cfg, emit):
 namespace = {}
 exec(shared, namespace)
 for name in (
-  "Changed", "Limit", "Budget", "signature", "mount_table", "containing",
-  "remote", "safe_stat", "read_directory", "read_regular",
+  "Changed", "MountLayoutChanged", "Limit", "Budget", "Node", "Directory",
+  "signature", "mount_table", "containing", "remote", "safe_stat",
+  "read_directory", "read_regular", "read_at", "contextual_error",
   "invalid_root", "guards_match", "clean_files"
 ):
   globals()[name] = namespace[name]
 
+# section handling
 def section(chip, function):
   try:
     function()
@@ -1716,6 +1987,7 @@ def section(chip, function):
   except OSError as exc:
     failure(chip, exc.filename or "filesystem operation", exc)
 
+# path resolution
 def resolve_paths():
   global mounts, npm, go_caches, gopaths, gobin
   global preserve, installations, base_cfg
@@ -1772,9 +2044,8 @@ def resolve_paths():
     for root in cache_roots
     for name in ("docker", "buildx", "buildkit", "containers")
   ] + [
-    docker_config, home + "/.docker",
-    data + "/nano", home + "/.Xauthority",
-    home + "/.ICEauthority", home + "/.pulse-cookie"
+    docker_config, home + "/.docker", data + "/nano",
+    home + "/.Xauthority", home + "/.ICEauthority", home + "/.pulse-cookie"
   ] + private_preserve
   if gobin:
     preserve.append(gobin)
@@ -1800,7 +2071,7 @@ def resolve_paths():
     "now": started, "dry": args.dry_run
   }
 
-# space
+# space measurements
 def space_sample(path):
   try:
     info = os.statvfs(path)
@@ -1811,8 +2082,7 @@ def space_sample(path):
     command = priv + [
       sys.executable, "-I", "-c",
       "import json,os,sys; s=os.statvfs(sys.argv[1]); "
-      "print(json.dumps([s.f_fsid,s.f_bavail*s.f_frsize]))",
-      path
+      "print(json.dumps([s.f_fsid,s.f_bavail*s.f_frsize]))", path
     ]
     try:
       values = json.loads(checked(command))
@@ -1843,29 +2113,41 @@ def remember(path, table=None):
     failure("SYSTEM", root, f"cannot measure free space: {exc}", "measurement")
 
 # filesystem jobs
-def files(chip, jobs, elevated=False, deadline=None, guards=None, seconds=120):
+def files(chip, jobs, elevated=False, deadline=None, guards=None,
+          seconds=120, expected_mounts=None):
   selected = unique_jobs(jobs)
   if not selected:
     return
+  if deadline is None:
+    deadline = time.monotonic() + seconds
+  budget = Budget(deadline, seconds)
+  budget.check(selected[0]["path"])
   current = mount_table()
+  if expected_mounts is not None and current != expected_mounts:
+    raise MountLayoutChanged("mount layout changed")
+
+  ordered = sorted(selected, key=lambda item: item["path"].split("/"))
+  budget.check()
+  stack = []
+  for item in ordered:
+    budget.check(item["path"])
+    item["exclude"] = list(item.get("exclude", []))
+    while stack and not within(item["path"], stack[-1]["path"]):
+      stack.pop()
+    if stack:
+      stack[-1]["exclude"].append(item["path"])
+    stack.append(item)
   for item in selected:
-    item["exclude"] = list(item.get("exclude", [])) + [
-      other["path"] for other in selected
-      if other is not item and within(other["path"], item["path"])
-    ]
+    budget.check(item["path"])
     if not invalid_root(item["path"], base_cfg, current):
       remember(item["path"], current)
 
-  if deadline is None:
-    deadline = time.monotonic() + seconds
-  if deadline <= time.monotonic():
-    raise Limit(
-      f"{seconds // 60}-minute scan limit reached", selected[0]["path"]
-    )
   cfg = dict(
     base_cfg, jobs=selected, deadline=deadline,
     seconds=seconds, guards=guards or {}
   )
+  if expected_mounts is not None:
+    cfg["expected_mounts"] = expected_mounts
 
   def emit(action, path, reason="", error_number=None):
     global file_bytes
@@ -1873,8 +2155,7 @@ def files(chip, jobs, elevated=False, deadline=None, guards=None, seconds=120):
       file_bytes += int(path)
     elif action == "ERROR":
       if reason.startswith("limit: "):
-        kind = "limit"
-        reason = reason[len("limit: "):]
+        kind, reason = "limit", reason[len("limit: "):]
       else:
         kind = "permission" if error_number in (errno.EACCES, errno.EPERM) \
           else "filesystem"
@@ -1886,13 +2167,24 @@ def files(chip, jobs, elevated=False, deadline=None, guards=None, seconds=120):
     clean_files(cfg, emit)
     return
 
+  # elevated worker
   driver = '''
-total = 0
+pending_bytes = 0
+
+def flush_bytes():
+  global pending_bytes
+  if pending_bytes:
+    print(json.dumps(["BYTES", pending_bytes, "", None]), flush=True)
+    pending_bytes = 0
+
 def emit(action, path, reason="", error_number=None):
-  global total
+  global pending_bytes
   if action == "BYTES":
-    total += int(path)
+    pending_bytes += int(path)
+    if pending_bytes >= 1024 * 1024:
+      flush_bytes()
   else:
+    flush_bytes()
     print(json.dumps([action, path, reason, error_number]), flush=True)
 
 try:
@@ -1900,31 +2192,42 @@ try:
 except KeyboardInterrupt:
   sys.exit(130)
 finally:
-  print(json.dumps(["BYTES", total, "", None]), flush=True)
+  flush_bytes()
 '''
   command = priv + [sys.executable, "-I", "-c", shared + driver]
   label = priv + [sys.executable, "-I", "-c", "<filesystem worker>"]
-  try:
-    result = capture(
-      command, input_text=json.dumps(cfg),
-      timeout=max(1, deadline - time.monotonic() + 10),
-      limit=16 * 1024 * 1024
-    )
-  except CommandError as exc:
-    raise CommandError(label, str(exc)) from exc
 
-  for line in result.stdout.splitlines():
+  def receive(line):
     try:
       record = json.loads(line)
       if not isinstance(record, list) or len(record) != 4:
         raise ValueError("invalid worker record")
-      emit(*record)
+      action, value, reason, number = record
+      if action == "BYTES":
+        if type(value) is not int or value < 0 \
+            or reason != "" or number is not None:
+          raise ValueError("invalid allocation record")
+      elif action in ("SCAN", "SKIP", "REMOVE", "ERROR"):
+        if not isinstance(value, str) or not isinstance(reason, str):
+          raise ValueError("invalid action record")
+        if number is not None and type(number) is not int:
+          raise ValueError("invalid error number")
+      else:
+        raise ValueError("unknown worker action")
     except (ValueError, TypeError) as exc:
       raise CommandError(label, "invalid filesystem-worker output") from exc
-  if result.returncode:
-    raise CommandError(
-      label, result.stderr.strip() or f"exit {result.returncode}"
+    emit(*record)
+
+  try:
+    result = capture(
+      command, input_text=json.dumps(cfg),
+      timeout=max(1, deadline - time.monotonic() + 10),
+      limit=128 * 1024, tail=True, on_stdout=receive
     )
+  except CommandError as exc:
+    raise CommandError(label, str(exc)) from exc
+  if result.returncode:
+    raise CommandError(label, result.stderr.strip() or f"exit {result.returncode}")
 
 # public cache rules
 def public_jobs():
@@ -1936,8 +2239,7 @@ def public_jobs():
     (gradle, "caches"), (gradle, "wrapper/dists"),
     (esp, "dist"), (nvm, ".cache"), (home, ".nvm/.cache"),
     (home, ".nv/ComputeCache"), (home, ".nv/GLCache"),
-    (triton_cache, ""),
-    (data, "Trash/files"), (data, "Trash/info")
+    (triton_cache, ""), (data, "Trash/files"), (data, "Trash/info")
   ]
   small = [
     (home, ".lesshst"), (home, ".viminfo"),
@@ -1945,8 +2247,7 @@ def public_jobs():
     (home, ".gnuplot_history"), (home, ".sudo_as_admin_successful"),
     (home, ".wget-hsts"), (home, ".ssh/known_hosts.old"),
     (state, "lesshst"), (state, "gnuplot_history"),
-    (data, "recently-used.xbel"),
-    (npm, "_update-notifier-last-checked")
+    (data, "recently-used.xbel"), (npm, "_update-notifier-last-checked")
   ]
   return [
     job(os.path.join(root, path), directory_root=True)
@@ -1958,9 +2259,9 @@ def public_jobs():
     job(os.path.join(root, path)) for root, path in small
   ]
 
+# browser caches
 def browser_jobs(table):
-  jobs = []
-  budget = Budget()
+  jobs, budget = [], Budget()
   for browser in ("chromium", "google-chrome"):
     root = config + "/" + browser
     reason = invalid_root(root, base_cfg, table)
@@ -1968,18 +2269,21 @@ def browser_jobs(table):
       log("CACHE", "SKIP", root, reason)
       continue
     try:
-      for name in read_directory(root, table, budget):
-        if name != "Default" and not name.startswith("Profile "):
-          continue
-        path = os.path.join(root, name)
-        if path in table:
-          continue
-        if not stat.S_ISDIR(safe_stat(path, table).st_mode):
-          continue
-        jobs.extend(
-          job(path + "/" + leaf, args.cache_age, directory_root=True)
-          for leaf in ("Cache", "Code Cache", "GPUCache")
-        )
+      with Directory(root, table, budget) as directory:
+        for entry in directory.scan(entries=True):
+          name = entry.name
+          path = os.path.join(root, name)
+          budget.check(path)
+          if name != "Default" and not name.startswith("Profile "):
+            continue
+          if path in table or not entry.is_dir(follow_symlinks=False):
+            continue
+          if not stat.S_ISDIR(directory.stat(name).st_mode):
+            continue
+          jobs.extend(
+            job(path + "/" + leaf, args.cache_age, directory_root=True)
+            for leaf in ("Cache", "Code Cache", "GPUCache")
+          )
     except FileNotFoundError:
       pass
     except Changed as exc:
@@ -1988,6 +2292,7 @@ def browser_jobs(table):
       failure("CACHE", root, exc)
   return jobs
 
+# cache planning
 def cache_plan():
   external = []
   if available("uv"):
@@ -1996,17 +2301,15 @@ def cache_plan():
     ))
   if go_caches:
     external.append((
-      go_caches,
-      [
-        "env", "GOTOOLCHAIN=local",
-        "GOCACHE=" + go_caches[0], "GOMODCACHE=" + go_caches[1],
-        "go", "clean", "-cache", "-testcache", "-modcache"
-      ]
+      [path for path in go_caches if os.path.isabs(path)],
+      ["env", "GOTOOLCHAIN=local",
+       "GOCACHE=" + go_caches[0], "GOMODCACHE=" + go_caches[1],
+       "go", "clean", "-cache", "-testcache", "-modcache"]
     ))
 
   reserved = sorted({
     os.path.normpath(path)
-    for paths, _ in external for path in paths if os.path.isabs(path)
+    for paths, _ in external for path in paths
   })
   for item in private_jobs:
     if any(overlaps(item["path"], root) for root in reserved):
@@ -2033,11 +2336,10 @@ def cache_plan():
       accepted.append((paths, command))
       owned.extend(paths)
 
-  jobs = [
+  jobs = unique_jobs([
     job(root, args.cache_age, directory_root=True, exclude=installations)
     for root in cache_roots
-  ] + public_jobs() + private_jobs + browser_jobs(current)
-  jobs = unique_jobs(jobs)
+  ] + public_jobs() + private_jobs + browser_jobs(current))
   selected = []
   for item in jobs:
     if any(within(item["path"], root) for root in reserved):
@@ -2047,6 +2349,7 @@ def cache_plan():
     selected.append(item)
   return selected, accepted
 
+# cache cleanup
 def user_caches(plan):
   jobs, accepted = plan
   files("CACHE", jobs)
@@ -2175,12 +2478,26 @@ def projects():
     for reason in [storage_reason(path, item)]
     if reason
   }
-  excluded = installations + cache_roots + preserve + [
-    uv_cache, home + "/bin", home + "/.local/bin", home + "/.local/lib"
-  ]
-  excluded += [path for path in go_caches if os.path.isabs(path)]
+  excluded = list(dict.fromkeys(
+    installations + cache_roots + preserve + [
+      uv_cache, home + "/bin", home + "/.local/bin", home + "/.local/lib"
+    ] + [path for path in go_caches if os.path.isabs(path)]
+  ))
   pruned_names = {".git", "node_modules", ".venv", "venv"}
+  workspace_names = {
+    "pnpm-workspace.yaml", "pnpm-workspace.yml",
+    "settings.gradle", "settings.gradle.kts"
+  }
   recent_reason = f"activity within {args.project_age} days"
+  open_dirs = {}
+
+  class ProjectSkip(Exception):
+    pass
+
+  def check_layout():
+    budget.check()
+    if mount_table() != mounts:
+      raise MountLayoutChanged("mount layout changed")
 
   def permission_skip(path, exc):
     global incomplete
@@ -2188,18 +2505,19 @@ def projects():
     log("PROJECTS", "SKIP", path,
         "permission denied: " + display(exc.filename or path), "permission")
 
-  def omitted(path):
-    return any(within(path, root) for root in excluded)
-
   def boundary(path):
     for root, reason in blocked.items():
       if within(path, root):
         return reason
-    return "protected runtime or data path" if omitted(path) else ""
+    return "protected runtime or data path" \
+      if any(within(path, root) for root in excluded) else ""
 
   def info(path):
     budget.check(path)
-    return safe_stat(path, mounts)
+    if path in open_dirs:
+      return os.fstat(open_dirs[path].fd)
+    parent = open_dirs.get(os.path.dirname(path))
+    return parent.stat(os.path.basename(path)) if parent else safe_stat(path, mounts)
 
   def names_at(path):
     return read_directory(path, mounts, budget)
@@ -2207,6 +2525,19 @@ def projects():
   def recent_info(value):
     return args.project_age and max(value.st_mtime, value.st_ctime) >= cutoff
 
+  # git layouts
+  def git_layout(names):
+    if "HEAD" not in names:
+      return False
+    return (
+      "objects" in names and "refs" in names
+      or "commondir" in names and "gitdir" in names
+      or "config" in names and any(
+        name in names for name in ("objects", "refs", "packed-refs", "index")
+      )
+    )
+
+  # project markers
   def kinds(names):
     return {
       "rust": "Cargo.toml" in names,
@@ -2226,20 +2557,23 @@ def projects():
 
   def group_marker(names):
     return (
-      ".git" in names or any(kinds(names).values())
+      git_layout(names) or ".git" in names or any(kinds(names).values())
       or bool(names & {"pnpm-workspace.yaml", "pnpm-workspace.yml"})
     )
 
+  # discovery roots
   candidates = set(project_roots)
+  ancestor_markers = {}
   if project_auto:
+    home_names = set(names_at(home))
+    ancestor_markers[home] = group_marker(home_names)
     candidates.update(
-      os.path.join(home, name)
-      for name in names_at(home) if not name.startswith(".")
+      os.path.join(home, name) for name in home_names if not name.startswith(".")
     )
 
   roots = []
-  ancestor_markers = {}
   for path in sorted(candidates, key=lambda value: (len(value), value)):
+    budget.check(path)
     if any(within(path, root) for root in roots):
       continue
     reason = boundary(path)
@@ -2258,6 +2592,7 @@ def projects():
 
       parent = os.path.dirname(path)
       while within(parent, home):
+        budget.check(parent)
         if parent not in ancestor_markers:
           ancestor_markers[parent] = group_marker(set(names_at(parent)))
         if ancestor_markers[parent]:
@@ -2269,8 +2604,8 @@ def projects():
         parent = os.path.dirname(parent)
       if reason:
         log("PROJECTS", "SKIP", path, reason, "metadata")
-        continue
-      roots.append(path)
+      else:
+        roots.append(path)
     except FileNotFoundError:
       continue
     except Changed as exc:
@@ -2282,6 +2617,7 @@ def projects():
     log("PROJECTS", "SKIP", "discovery", "no eligible project roots")
     return
 
+  # active processes
   def active_paths():
     result = set()
     with os.scandir("/proc") as stream:
@@ -2304,8 +2640,26 @@ def projects():
     return result
 
   active = active_paths()
-  watch = {}
-  git_guards = {}
+  watch, git_guards = {}, {}
+  repositories, tracking, git_activity = {}, {}, {}
+  toml_cache, cargo_configs = {}, {}
+  git_storage = set()
+  group_state = (
+    watch, git_guards, repositories, tracking,
+    git_activity, toml_cache, cargo_configs, git_storage
+  )
+
+  # group metadata
+  def clear_group():
+    for value in group_state:
+      value.clear()
+
+  def record(path, value):
+    stamp = signature(value) if value is not None else None
+    if path in watch and watch[path] != stamp:
+      raise Changed("project metadata changed during inspection")
+    watch[path] = stamp
+    return value
 
   def observed(path, optional=False):
     try:
@@ -2314,15 +2668,10 @@ def projects():
       if not optional:
         raise
       value = None
-    stamp = signature(value) if value is not None else None
-    if path in watch and watch[path] != stamp:
-      raise Changed("project metadata changed during inspection")
-    watch[path] = stamp
-    return value
+    return record(path, value)
 
-  def metadata_info(path, optional=False, directory=False, either=False,
-                    ancestor=False):
-    path = os.path.abspath(path)
+  def metadata_storage(path, ancestor=False):
+    budget.check(path)
     item = containing(path, mounts)
     if not item or remote(item):
       raise ValueError(f"metadata on unsupported storage: {display(path)}")
@@ -2332,6 +2681,11 @@ def projects():
       root = max((root for root in mounts if within(path, root)), key=len)
       if storage_reason(root, item):
         raise ValueError(f"metadata on excluded storage: {display(path)}")
+
+  def metadata_info(path, optional=False, directory=False, either=False,
+                    ancestor=False):
+    path = os.path.abspath(path)
+    metadata_storage(path, ancestor)
     value = observed(path, optional=optional)
     if value is None:
       return None
@@ -2346,7 +2700,10 @@ def projects():
 
   def read_text(path, ancestor=False):
     metadata_info(path, ancestor=ancestor)
-    result = read_regular(path, mounts, budget)
+    parent = open_dirs.get(os.path.dirname(path))
+    result = read_at(
+      parent.fd, os.path.basename(path), path, mounts, budget
+    ) if parent else read_regular(path, mounts, budget)
     observed(path)
     return result
 
@@ -2367,8 +2724,6 @@ def projects():
       raise ValueError(f"{label}: expected a string")
     return value
 
-  toml_cache = {}
-
   def read_toml(path, ancestor=False):
     if not tomllib:
       raise ValueError("Cargo inspection requires Python 3.11+")
@@ -2376,8 +2731,18 @@ def projects():
       toml_cache[path] = tomllib.loads(read_text(path, ancestor=ancestor))
     return mapping(toml_cache[path], display(path))
 
-  # workspace layout
+  def cargo_config(path, ancestor):
+    path = os.path.abspath(path)
+    metadata_storage(path, ancestor)
+    if path not in cargo_configs:
+      value = metadata_info(path, optional=True, ancestor=ancestor)
+      cargo_configs[path] = None if value is None \
+        else read_toml(path, ancestor=ancestor)
+    return cargo_configs[path]
+
+  # workspace layouts
   def layout(directory, group, kind, names, members):
+    budget.check(directory)
     if names & {"pnpm-workspace.yaml", "pnpm-workspace.yml"}:
       return "pnpm workspace layout not resolved"
 
@@ -2396,9 +2761,9 @@ def projects():
           break
         parent = os.path.dirname(parent)
       for path, ancestor in sorted(paths.items()):
-        if metadata_info(path, optional=True, ancestor=ancestor) is None:
+        parsed = cargo_config(path, ancestor)
+        if parsed is None:
           continue
-        parsed = read_toml(path, ancestor=ancestor)
         if "include" in parsed:
           return "indirect Cargo configuration"
         build = mapping(parsed.get("build", {}), "Cargo build configuration")
@@ -2454,8 +2819,7 @@ def projects():
         text = read_text(directory + "/" + name)
         text = re.sub(
           r"""("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|//[^\n]*|/\*[\s\S]*?\*/""",
-          lambda match: match[1] if match[1] is not None else " ",
-          text
+          lambda match: match[1] if match[1] is not None else " ", text
         )
         if re.search(r"\b(projectDir|includeBuild|evaluate|apply)\b", text):
           return "custom Gradle workspace layout"
@@ -2476,27 +2840,33 @@ def projects():
     return ""
 
   # git ownership
-  repositories = {}
-  tracking = {}
+  def git_info(path, storage=False, **options):
+    path = os.path.abspath(path)
+    value = metadata_info(path, **options)
+    git_guards[path] = watch[path]
+    if storage and value is not None and stat.S_ISDIR(value.st_mode):
+      git_storage.add(path)
+    return value
 
   def git_marker(directory):
     marker = directory.rstrip("/") + "/.git"
     ancestor = within(home, directory)
-    value = metadata_info(marker, optional=True, either=True, ancestor=ancestor)
+    value = git_info(
+      marker, optional=True, either=True, ancestor=ancestor, storage=True
+    )
     if value is None:
       return None
     if stat.S_ISDIR(value.st_mode):
       return marker
     text = read_text(marker, ancestor=ancestor).strip()
-    if not text.startswith("gitdir: "):
+    if not text.startswith("gitdir: ") or not text[8:]:
       raise ValueError(f"unrecognized Git directory: {display(marker)}")
     target = os.path.normpath(os.path.join(directory, text[8:]))
-    metadata_info(target, directory=True)
+    git_info(target, directory=True, storage=True)
     return target
 
   def repository_for(directory):
-    visited = []
-    current = directory
+    visited, current = [], directory
     while True:
       if current in repositories:
         answer = repositories[current]
@@ -2514,24 +2884,40 @@ def projects():
       repositories[path] = answer
     return answer
 
+  # git activity
   def git_recent(repository):
     if repository is None:
       return False
     gitdir = repository[1]
+    if gitdir in git_activity:
+      return git_activity[gitdir]
+
     recent = False
-    for leaf in ("HEAD", "index", "FETCH_HEAD", "ORIG_HEAD",
-                 "packed-refs", "logs/HEAD", "commondir"):
-      path = gitdir + "/" + leaf
-      value = metadata_info(path, optional=True)
-      git_guards[path] = signature(value) if value is not None else None
+    for leaf in (
+      "HEAD", "index", "FETCH_HEAD", "ORIG_HEAD", "packed-refs",
+      "logs/HEAD", "commondir", "config", "config.worktree"
+    ):
+      value = git_info(gitdir + "/" + leaf, optional=True)
       if value is not None and recent_info(value):
         recent = True
+
     common = gitdir + "/commondir"
     if watch.get(common) is not None:
-      target = os.path.normpath(os.path.join(gitdir, read_text(common).strip()))
-      metadata_info(target, directory=True)
+      declared = read_text(common).strip()
+      if not declared:
+        raise ValueError("empty Git common-directory metadata")
+      target = os.path.normpath(os.path.join(gitdir, declared))
+      git_info(target, directory=True, storage=True)
+      if target != gitdir:
+        for leaf in ("config", "config.worktree"):
+          value = git_info(target + "/" + leaf, optional=True)
+          if value is not None and recent_info(value):
+            recent = True
+
+    git_activity[gitdir] = recent
     return recent
 
+  # git tracking
   git_env = dict(os.environ, GIT_OPTIONAL_LOCKS="0", LC_ALL="C")
   for name in (
     "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
@@ -2539,24 +2925,64 @@ def projects():
   ):
     git_env.pop(name, None)
 
+  def git_query(command, root, binary=False):
+    budget.check(root)
+    return query(
+      command, git_env, binary=binary,
+      timeout=max(0.1, min(30, budget.deadline - time.monotonic()))
+    )
+
+  def load_tracking(repository):
+    root, gitdir = repository
+    if not available("git"):
+      return None, "Git unavailable"
+
+    command = ["git", "-C", root, "-c", "core.fsmonitor=false"]
+    result = git_query(
+      command + ["rev-parse", "--show-toplevel", "--absolute-git-dir"], root
+    )
+    if result.returncode:
+      return None, "cannot verify Git worktree metadata"
+
+    paths = result.stdout.splitlines()
+    if len(paths) != 2 or any(
+      not os.path.isabs(path) or "\0" in path for path in paths
+    ):
+      return None, "unrecognized Git worktree metadata"
+    actual_root, actual_gitdir = map(os.path.normpath, paths)
+    if actual_root != root or actual_gitdir != gitdir:
+      return None, "unsupported Git worktree or metadata mapping"
+
+    result = git_query(
+      command + [
+        "--git-dir=" + gitdir, "--work-tree=" + root,
+        "ls-files", "--full-name", "-z"
+      ],
+      root, binary=True
+    )
+    if result.returncode:
+      return None, "cannot determine Git tracking"
+    if result.stdout and not result.stdout.endswith(b"\0"):
+      return None, "incomplete Git tracking metadata"
+
+    names = [
+      os.fsdecode(name) for name in result.stdout.split(b"\0") if name
+    ]
+    budget.check(root)
+    names.sort()
+    budget.check(root)
+    return names, ""
+
   def tracked(path, repository):
     if repository is None:
       return ""
     root = repository[0]
     if root not in tracking:
-      if not available("git"):
-        return "Git unavailable"
-      budget.check(root)
-      result = query(
-        ["git", "-C", root, "ls-files", "-z"], git_env, binary=True,
-        timeout=max(0.1, min(30, budget.deadline - time.monotonic()))
-      )
-      tracking[root] = sorted(
-        os.fsdecode(name) for name in result.stdout.split(b"\0") if name
-      ) if result.returncode == 0 else None
-    names = tracking[root]
-    if names is None:
-      return "cannot determine Git tracking"
+      tracking[root] = load_tracking(repository)
+    names, reason = tracking[root]
+    if reason:
+      return reason
+
     relative = os.path.relpath(path, root)
     index = bisect.bisect_left(names, relative)
     if index < len(names) and names[index] == relative:
@@ -2567,7 +2993,7 @@ def projects():
       return "contains tracked files"
     return ""
 
-  # artifact snapshots
+  # artifact inventory
   python_artifacts = {
     "__pycache__", ".pytest_cache", ".mypy_cache",
     ".ruff_cache", ".hypothesis", ".tox", ".nox"
@@ -2577,33 +3003,54 @@ def projects():
     ".turbo", ".parcel-cache", ".svelte-kit"
   }
 
-  def artifact_snapshot(root):
+  def artifact_snapshot(parent, name, value, retain=True):
+    root = os.path.join(parent.path, name)
     if any(within(point, root) for point in mounts):
-      return None, "artifact contains a mount"
+      raise ProjectSkip("artifact contains a mount")
     if any(overlaps(root, path) for path in excluded):
-      return None, "artifact overlaps protected data or a runtime root"
-    snapshot = {}
-    pending = [(root, 0)]
-    while pending:
-      path, depth = pending.pop()
-      budget.entry(depth, path)
-      value = info(path)
-      if recent_info(value):
-        return None, recent_reason
-      stamp = signature(value)
-      snapshot[os.path.relpath(path, root)] = stamp
-      if stat.S_ISDIR(value.st_mode):
-        for name in names_at(path):
-          if name == ".git":
-            return None, "artifact contains a repository"
-          pending.append((os.path.join(path, name), depth + 1))
-        if signature(info(path)) != stamp:
-          return None, "artifact changed during inspection"
-      elif not (stat.S_ISREG(value.st_mode) or stat.S_ISLNK(value.st_mode)):
-        return None, "artifact contains a socket or special file"
-    return snapshot, ""
+      raise ProjectSkip("artifact overlaps protected data or a runtime root")
 
-  def inspect(group, scope):
+    def visit(parent, name, value, depth):
+      path = os.path.join(parent.path, name)
+      budget.entry(depth, path)
+      if recent_info(value):
+        raise ProjectSkip(recent_reason)
+      node = Node(name, signature(value)) if retain else None
+
+      if stat.S_ISDIR(value.st_mode):
+        with Directory(path, mounts, budget, parent, value) as directory:
+          names = directory.scan()
+          if ".git" in names:
+            raise ProjectSkip("artifact contains a repository")
+          if git_layout(names):
+            raise ProjectSkip("artifact contains protected Git metadata")
+          children = [] if retain else None
+          for child_name in names:
+            child = visit(
+              directory, child_name, directory.stat(child_name), depth + 1
+            )
+            if retain:
+              children.append(child)
+          directory.unchanged()
+        if retain:
+          node.children = children
+          node.whole = True
+      elif stat.S_ISREG(value.st_mode) or stat.S_ISLNK(value.st_mode):
+        if retain:
+          node.bytes = value.st_blocks * 512 \
+            if stat.S_ISREG(value.st_mode) else None
+      else:
+        raise ProjectSkip("artifact contains a socket or special file")
+      return node
+
+    try:
+      return visit(parent, name, value, 0)
+    finally:
+      visit = None
+
+  # project inspection
+  def inspect(group_dir, scope, initial_names, initial_set):
+    group = group_dir.path
     if any(within(path, group) for path in active):
       return [], "currently in use"
     if recent_info(observed(group)):
@@ -2615,191 +3062,265 @@ def projects():
       return [], recent_reason
 
     candidates, metadata, members = [], [], []
-    symlinks, skipped = [], []
-    visited = set()
-    pending = [(group, inherited, False, False, 0)]
+    symlinks, visited = [], set()
+    incomplete_scan = False
 
-    while pending:
-      directory, repository, node_project, python_project, depth = pending.pop()
-      budget.entry(depth, directory)
-      visited.add(directory)
-      if recent_info(observed(directory)):
-        return [], recent_reason
-      names = set(names_at(directory))
-      entries = []
+    def candidate(directory, name, value, repository):
+      path = os.path.join(directory.path, name)
+      reason = tracked(path, repository)
+      snapshot = artifact_snapshot(directory, name, value, retain=not reason)
+      candidates.append((path, snapshot, reason))
 
-      for name in sorted(names):
-        if name == ".git":
-          continue
-        path = os.path.join(directory, name)
-        reason = boundary(path)
-        if reason:
-          skipped.append(path)
-          if path in blocked:
-            log("PROJECTS", "SKIP", path, reason)
-          continue
-        value = observed(path)
-        if recent_info(value):
-          return [], recent_reason
-        entries.append((path, name, value))
+    def walk(directory, repository, node_project, python_project,
+             depth=0, names=None, name_set=None):
+      nonlocal incomplete_scan
+      path = directory.path
+      budget.entry(depth, path)
+      directory.unchanged()
+      visited.add(path)
+      if recent_info(record(path, directory.info)):
+        raise ProjectSkip(recent_reason)
+      if names is None:
+        names = directory.scan()
+        name_set = set(names)
+      budget.check(path)
+      if git_layout(name_set):
+        raise ProjectSkip("project contains protected Git metadata")
 
-      if ".git" in names:
-        marker = git_marker(directory)
-        if marker is None:
-          raise Changed("Git metadata disappeared during inspection")
-        repository = (directory, marker)
-        repositories[directory] = repository
-        if git_recent(repository):
-          return [], recent_reason
-
-      kind = kinds(names)
+      kind = kinds(name_set)
       node_project = node_project or kind["node"]
       python_project = python_project or kind["python"]
-      if any(kind.values()) or names & {
+
+      actionable = []
+      for name in names:
+        if name == ".git":
+          continue
+        child_path = os.path.join(path, name)
+        budget.check(child_path)
+        reason = boundary(child_path)
+        if reason:
+          incomplete_scan = True
+          if child_path in blocked:
+            log("PROJECTS", "SKIP", child_path, reason)
+          continue
+        value = record(child_path, directory.stat(name))
+        if recent_info(value):
+          raise ProjectSkip(recent_reason)
+        mode = value.st_mode
+        if stat.S_ISLNK(mode):
+          symlinks.append(child_path)
+        elif stat.S_ISDIR(mode) or (
+          python_project and name.endswith((".pyc", ".pyo"))
+          and stat.S_ISREG(mode)
+        ):
+          actionable.append((name, value))
+
+      if ".git" in name_set:
+        marker = git_marker(path)
+        if marker is None:
+          raise Changed("Git metadata disappeared during inspection")
+        repository = (path, marker)
+        repositories[path] = repository
+        if git_recent(repository):
+          raise ProjectSkip(recent_reason)
+
+      if any(kind.values()) or name_set & {
         "pnpm-workspace.yaml", "pnpm-workspace.yml"
       }:
-        metadata.append((directory, kind, names))
+        metadata.append((path, kind, name_set & workspace_names))
 
-      for path, name, value in entries:
-        if stat.S_ISLNK(value.st_mode):
-          symlinks.append(path)
-          continue
+      for name, value in actionable:
+        child_path = os.path.join(path, name)
+        budget.check(child_path)
         if not stat.S_ISDIR(value.st_mode):
-          if python_project and name.endswith((".pyc", ".pyo")) \
-              and stat.S_ISREG(value.st_mode):
-            snapshot, reason = artifact_snapshot(path)
-            if reason:
-              return [], reason
-            candidates.append((path, repository, snapshot))
+          candidate(directory, name, value, repository)
           continue
-
         artifact = (
           python_project and name in python_artifacts
           or node_project and name in node_artifacts
-          or node_project and os.path.basename(directory) == ".angular"
+          or node_project and os.path.basename(path) == ".angular"
             and name == "cache"
           or name == "target" and (kind["rust"] or kind["maven"])
           or kind["gradle"] and name in (".gradle", "build")
           or kind["dotnet"] and name in ("bin", "obj")
         )
         if not artifact and name in (".venv", "venv"):
-          artifact = metadata_info(path + "/pyvenv.cfg", optional=True) is not None
+          artifact = metadata_info(
+            child_path + "/pyvenv.cfg", optional=True
+          ) is not None
         if not artifact and (kind["cmake"] or kind["make"]) and (
           name in ("build", "_build") or name.startswith("cmake-build-")
         ):
           artifact = (
-            metadata_info(path + "/CMakeCache.txt", optional=True) is not None
+            metadata_info(child_path + "/CMakeCache.txt", optional=True) is not None
             and metadata_info(
-              path + "/CMakeFiles", optional=True, directory=True
+              child_path + "/CMakeFiles", optional=True, directory=True
             ) is not None
           )
         if artifact:
-          snapshot, reason = artifact_snapshot(path)
-          if reason:
-            return [], reason
-          candidates.append((path, repository, snapshot))
+          candidate(directory, name, value, repository)
         else:
-          pending.append(
-            (path, repository, node_project, python_project, depth + 1)
-          )
+          with Directory(child_path, mounts, budget, directory, value) as child:
+            open_dirs[child_path] = child
+            try:
+              walk(child, repository, node_project, python_project, depth + 1)
+            finally:
+              open_dirs.pop(child_path, None)
+      directory.unchanged()
 
-    if not candidates:
-      return [], ""
-    if skipped:
-      return [], "incomplete project activity scan"
-    for directory, kind, names in metadata:
-      reason = layout(directory, group, kind, names, members)
-      if reason:
-        return [], reason
-    for member in members:
-      wildcard = re.search(r"[*?\[]", member)
-      if wildcard:
-        prefix = member[:wildcard.start()].rsplit("/", 1)[0] or "/"
-        if any(overlaps(path, prefix) for path in symlinks):
-          return [], "workspace member not inspected"
-        if not any(fnmatch.fnmatchcase(path, member) for path in visited):
-          return [], "workspace members not resolved"
-      elif member not in visited:
-        return [], "workspace member not inspected"
-    return candidates, ""
-
-  scanning = None
-  pending = [(root, root, 0) for root in reversed(sorted(roots))]
-  while pending:
-    directory, scope, depth = pending.pop()
-    if scanning != scope:
-      scanning = scope
-      log("PROJECTS", "SCAN", scope)
     try:
-      budget.entry(depth, directory)
-      reason = boundary(directory)
-      if reason:
-        log("PROJECTS", "SKIP", directory, reason)
-        continue
-      names = set(names_at(directory))
-      if not group_marker(names):
-        for name in sorted(names, reverse=True):
-          path = os.path.join(directory, name)
-          reason = boundary(path)
-          if reason:
-            if path in blocked:
-              log("PROJECTS", "SKIP", path, reason)
-            continue
-          if name not in pruned_names and stat.S_ISDIR(info(path).st_mode):
-            pending.append((path, scope, depth + 1))
-        continue
+      walk(
+        group_dir, inherited, False, False,
+        names=initial_names, name_set=initial_set
+      )
+      if not candidates:
+        return [], ""
+      if incomplete_scan:
+        return [], "incomplete project activity scan"
+      for directory, kind, names in metadata:
+        reason = layout(directory, group, kind, names, members)
+        if reason:
+          return [], reason
 
-      watch.clear()
-      git_guards.clear()
-      repositories.clear()
-      tracking.clear()
-      toml_cache.clear()
-      candidates, reason = inspect(directory, scope)
-      if reason:
-        log("PROJECTS", "SKIP", directory, reason)
-        continue
+      for member in members:
+        budget.check(member)
+        wildcard = re.search(r"[*?\[]", member)
+        if wildcard:
+          prefix = member[:wildcard.start()].rsplit("/", 1)[0] or "/"
+          if any(overlaps(path, prefix) for path in symlinks):
+            return [], "workspace member not inspected"
+          if not any(fnmatch.fnmatchcase(path, member) for path in visited):
+            return [], "workspace members not resolved"
+        elif member not in visited:
+          return [], "workspace member not inspected"
+      return candidates, ""
+    except ProjectSkip as exc:
+      return [], str(exc)
+    finally:
+      walk = candidate = None
 
+  # project cleanup
+  def process_group(directory, scope, names, name_set):
+    nonlocal active
+    clear_group()
+    try:
+      candidates, reason = inspect(directory, scope, names, name_set)
+      if reason:
+        log("PROJECTS", "SKIP", directory.path, reason)
+        return
+
+      protected_git = sorted(git_storage)
+      exclusions = excluded + protected_git
       group_jobs = []
-      for path, repository, snapshot in candidates:
-        reason = tracked(path, repository)
+      for path, snapshot, reason in candidates:
+        budget.check(path)
+        if any(overlaps(path, root) for root in protected_git):
+          reason = "artifact overlaps protected Git metadata"
         if reason:
           log("PROJECTS", "SKIP", path, reason)
         else:
           group_jobs.append(
-            job(path, keep=False, exclude=excluded, snapshot=snapshot)
+            job(path, keep=False, exclude=exclusions, snapshot=snapshot)
           )
       if not group_jobs:
-        continue
-      if mount_table() != mounts:
-        log("PROJECTS", "SKIP", "remaining projects", "mount layout changed")
         return
+
+      check_layout()
       if not guards_match(watch, mounts, budget):
-        log("PROJECTS", "SKIP", directory, "project changed during inspection")
-        continue
+        log("PROJECTS", "SKIP", directory.path, "project changed during inspection")
+        return
       active = active_paths()
-      if any(within(path, directory) for path in active):
-        log("PROJECTS", "SKIP", directory, "currently in use")
-        continue
-      budget.check(directory)
+      if any(within(path, directory.path) for path in active):
+        log("PROJECTS", "SKIP", directory.path, "currently in use")
+        return
+
+      budget.check(directory.path)
       files(
         "PROJECTS", group_jobs, deadline=budget.deadline,
-        guards=git_guards, seconds=300
+        guards=git_guards, seconds=300, expected_mounts=mounts
       )
+      check_layout()
+    finally:
+      clear_group()
 
+  # project discovery
+  def discover(path, scope, depth=0, parent=None, expected=None):
+    try:
+      budget.entry(depth, path)
+      reason = boundary(path)
+      if reason:
+        log("PROJECTS", "SKIP", path, reason)
+        return
+
+      with Directory(path, mounts, budget, parent, expected) as directory:
+        open_dirs[path] = directory
+        try:
+          entries = directory.scan(entries=True)
+          name_set = {entry.name for entry in entries}
+          budget.check(path)
+          if git_layout(name_set):
+            log("PROJECTS", "SKIP", path, "protected Git metadata")
+            return
+          if group_marker(name_set):
+            names = [entry.name for entry in entries]
+            del entries
+            process_group(directory, scope, names, name_set)
+            return
+
+          for entry in entries:
+            name = entry.name
+            child_path = os.path.join(path, name)
+            budget.check(child_path)
+            reason = boundary(child_path)
+            if reason:
+              if child_path in blocked:
+                log("PROJECTS", "SKIP", child_path, reason)
+              continue
+            if name in pruned_names:
+              continue
+            try:
+              is_directory = entry.is_dir(follow_symlinks=False)
+            except OSError as exc:
+              raise contextual_error(exc, child_path) from exc
+            if not is_directory:
+              continue
+            value = directory.stat(name)
+            if stat.S_ISDIR(value.st_mode):
+              discover(child_path, scope, depth + 1, directory, value)
+        finally:
+          open_dirs.pop(path, None)
+
+    except MountLayoutChanged:
+      raise
     except Changed as exc:
-      log("PROJECTS", "SKIP", directory, str(exc))
+      check_layout()
+      log("PROJECTS", "SKIP", path, str(exc))
     except ValueError as exc:
-      log("PROJECTS", "SKIP", directory, str(exc), "metadata")
+      log("PROJECTS", "SKIP", path, str(exc), "metadata")
     except PermissionError as exc:
-      permission_skip(directory, exc)
+      permission_skip(path, exc)
     except FileNotFoundError as exc:
-      log("PROJECTS", "SKIP", directory,
-          "path or Git metadata unavailable: "
-          + display(exc.filename or directory), "metadata")
+      log(
+        "PROJECTS", "SKIP", path,
+        "path or Git metadata unavailable: " + display(exc.filename or path),
+        "metadata"
+      )
     except CommandError as exc:
       failure("PROJECTS", exc.command, exc, "command")
     except OSError as exc:
-      failure("PROJECTS", exc.filename or directory, exc)
+      failure("PROJECTS", exc.filename or path, exc)
+
+  try:
+    for root in sorted(roots):
+      budget.check(root)
+      check_layout()
+      log("PROJECTS", "SCAN", root)
+      discover(root, root)
+  except MountLayoutChanged as exc:
+    log("PROJECTS", "SKIP", "remaining projects", str(exc))
+  finally:
+    discover = None
+    clear_group()
 
 # docker
 def docker():
@@ -2807,18 +3328,13 @@ def docker():
     log("DOCKER", "SKIP", "docker", "not installed")
     return
   user_command = ["docker", "--config", docker_config]
-  requested_context = os.environ.get("DOCKER_CONTEXT", "")
+  context = os.environ.get("DOCKER_CONTEXT", "")
   requested_host = os.environ.get("DOCKER_HOST", "")
-  context = requested_context
   if not context and not requested_host:
     context = checked(user_command + ["context", "show"])
-  if context:
-    endpoint = checked(user_command + [
-      "context", "inspect", context,
-      "--format", "{{.Endpoints.docker.Host}}"
-    ])
-  else:
-    endpoint = requested_host
+  endpoint = checked(user_command + [
+    "context", "inspect", context, "--format", "{{.Endpoints.docker.Host}}"
+  ]) if context else requested_host
   if not endpoint.startswith("unix://"):
     log("DOCKER", "SKIP", endpoint, "remote or unsupported Docker endpoint")
     return
@@ -2844,13 +3360,14 @@ def docker():
   info_command = command + ["info", "--format", "{{.DockerRootDir}}"]
   root = checked(info_command)
   if not os.path.isabs(root) or "\n" in root:
-    failure("DOCKER", shlex.join(info_command), "invalid DockerRootDir",
-            "metadata")
+    failure("DOCKER", shlex.join(info_command), "invalid DockerRootDir", "metadata")
     return
   remember(root)
   remember("/var/lib/containerd")
-  run("DOCKER", command + ["system", "prune", "-af"],
-      f"{context or 'explicit endpoint'}; {endpoint}; no volumes")
+  run(
+    "DOCKER", command + ["system", "prune", "-af"],
+    f"{context or 'explicit endpoint'}; {endpoint}; no volumes"
+  )
 
 # packages
 def packages():
@@ -2876,8 +3393,7 @@ def packages():
                 "no valid absolute cache directories returned", "metadata")
       else:
         suffixes = (
-          "", ".zst", ".xz", ".gz", ".bz2",
-          ".lrz", ".lzo", ".Z", ".lz4", ".lz"
+          "", ".zst", ".xz", ".gz", ".bz2", ".lrz", ".lzo", ".Z", ".lz4", ".lz"
         )
         patterns = [
           "*.pkg.tar" + suffix + extension
@@ -2918,9 +3434,7 @@ def packages():
     remember(data + "/flatpak")
     remember("/var/lib/flatpak")
     run("PACKAGE", ["flatpak", "uninstall", "--user", "--unused", "-y"])
-    run("PACKAGE", priv + [
-      "flatpak", "uninstall", "--system", "--unused", "-y"
-    ])
+    run("PACKAGE", priv + ["flatpak", "uninstall", "--system", "--unused", "-y"])
 
 # execution
 try:
@@ -2964,7 +3478,7 @@ except Exception as exc:
   failure("SYSTEM", "cleanup aborted", f"{type(exc).__name__}: {exc}", "internal")
   traceback.print_exc()
 
-# summary
+# final measurements
 disk_change = 0
 space_partial = bool(space_failed)
 if not args.dry_run:
@@ -2980,10 +3494,10 @@ if not args.dry_run:
       space_partial = True
       failure("SYSTEM", path, f"cannot measure free space: {exc}", "measurement")
     except KeyboardInterrupt:
-      interrupted = True
-      space_partial = True
+      interrupted = space_partial = True
       break
 
+# summary
 def size(value):
   sign = "-" if value < 0 else ""
   value = abs(value)
@@ -2994,9 +3508,7 @@ def size(value):
 
 def counts(counter, order):
   names = list(order) + sorted(set(counter) - set(order))
-  return " + ".join(
-    f"{counter[name]} {name}" for name in names if counter[name]
-  )
+  return " + ".join(f"{counter[name]} {name}" for name in names if counter[name])
 
 if args.verbose:
   print()
