@@ -148,7 +148,7 @@ alias btop='$sudo btop --force-utf'
 # basic functions
 ca() { bc <<< "scale=5;$*"; }
 catw() { cat "$1" | fold -sw "$COLUMNS"; }
-clip() { printf '\033]52;c;%s\a' "$(base64 | tr -d '\r\n')" > /dev/tty }
+clip() { printf '\033]52;c;%s\a' "$(base64 | tr -d '\r\n')" > /dev/tty; }
 
 ###########
 # EXPORTS #
