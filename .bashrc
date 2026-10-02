@@ -2394,7 +2394,7 @@ def logs():
   files("LOG", [
     job("/var/log", args.log_age,
         access=False, directories=False, links=False, directory_root=True,
-        exclude=["/var/log/journal", "/var/log/audit"],
+        exclude=["/var/log/journal", "/var/log/audit", "/var/log/nginx"],
         patterns=["*.gz", "*.xz", "*.zst", "*.[0-9]", "*.[0-9][0-9]", "*.old"]),
     job("/var/lib/systemd/coredump", patterns=["core.*"],
         directories=False, links=False, directory_root=True),
