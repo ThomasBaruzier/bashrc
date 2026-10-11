@@ -330,15 +330,6 @@ pconf() {
   echo
 }
 
-# update everything
-u() {
-  ubrc || return
-  uconf || return
-  [ -z "$sudo" ] && return
-  sudo cp ~/.bashrc /root/
-  sudo cp -r ~/.config/bashrc /root/.config/
-}
-
 ## FILE TRANSFERS
 
 # file upload
