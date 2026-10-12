@@ -1,0 +1,12 @@
+# quiet startup
+startup_message off
+
+# scrollback
+defscrollback 10000
+
+# application screen
+altscreen on
+
+# colors
+term screen-256color
+truecolor on

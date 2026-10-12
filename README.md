@@ -202,13 +202,15 @@ The `adbcheck <folder>` command compares MD5 hashes of existing local files agai
 
 ## Bashrc synchronization
 
-These functions synchronize public files with `ThomasBaruzier/bashrc` and private configuration with `ThomasBaruzier/bashrc-private` on GitHub over SSH.
+These functions synchronize public files with `ThomasBaruzier/bashrc` over HTTPS and private configuration with `ThomasBaruzier/bashrc-private` over SSH. Public publishing uses SSH. Checkouts update with `git pull --ff-only`; local changes are not reset or cleaned.
+
+The public checkout stays in `~/.cache/bashrc`. Tracked files under `configs/` map directly into the home directory, including hidden paths: `configs/.screenrc` becomes `~/.screenrc`. Currently this includes nano, Screen, tmux and hushlogin settings. These files are overwritten on update; removing one from the repository does not delete its installed home copy. Host-specific login/desktop configuration and credentials do not belong in this shared tree.
 
 | Command | Description |
 | --- | --- |
-| `ubrc` | Overwrites `~/.bashrc` and `~/.config/bashrc/clean.py` with public repository versions. |
+| `ubrc` | Updates the public checkout and installs `.bashrc`, `clean.py` and tracked `configs/` files. |
 | `pbrc` | Commits and pushes the public bashrc files. |
-| `uconf` | Updates private configuration in `~/.config/bashrc/`. |
+| `uconf` | Fast-forwards the private checkout in `~/.config/bashrc/`, preserving untracked files. |
 | `pconf` | Commits and pushes top-level `.sh` files in `~/.config/bashrc/`. |
 
 Run `rel` after updating to load the changes into the current shell.

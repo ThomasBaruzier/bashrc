@@ -226,7 +226,21 @@ _getps1
 
 # public files
 _bashrc_files() {
+  local path
   printf '%s\n' '.bashrc .bashrc' 'scripts/clean.py .config/bashrc/clean.py'
+  while IFS= read -r path; do
+    printf '%s %s\n' "$path" "${path#configs/}"
+  done < <([ ! -d "$HOME/.cache/bashrc/.git" ] || git -C "$HOME/.cache/bashrc" ls-files configs/)
+}
+
+# public checkout
+_bashrc_repo() {
+  mkdir -p ~/.cache
+  if [ -d ~/.cache/bashrc/.git ]; then
+    git -C ~/.cache/bashrc pull --ff-only
+  else
+    git clone https://github.com/ThomasBaruzier/bashrc.git ~/.cache/bashrc
+  fi
 }
 
 # script download
@@ -245,16 +259,13 @@ _bashrc_script() {
 # update bashrc
 ubrc() {
   local remote local_path
-  mkdir -p ~/.cache
-  rm -rf ~/.cache/bashrc
-  clone thomasbaruzier bashrc ~/.cache/bashrc || return
+  _bashrc_repo || return
 
   while read -r remote local_path; do
     mkdir -p "$(dirname "$HOME/$local_path")"
     cp "$HOME/.cache/bashrc/$remote" "$HOME/$local_path" || return
   done < <(_bashrc_files)
 
-  rm -rf ~/.cache/bashrc
   success 'Public bashrc files updated'
 }
 
@@ -266,16 +277,14 @@ pbrc() {
   [ -z "$commit_name" ] && commit_name='other: automatic commit'
   echo
 
-  mkdir -p ~/.cache
-  rm -rf ~/.cache/bashrc
-  clone thomasbaruzier bashrc ~/.cache/bashrc || return
+  _bashrc_repo || return
   while read -r remote local_path; do
     mkdir -p "$(dirname "$HOME/.cache/bashrc/$remote")"
     cp "$HOME/$local_path" "$HOME/.cache/bashrc/$remote" || return
     git -C ~/.cache/bashrc add -- "$remote" || return
   done < <(_bashrc_files)
   git -C ~/.cache/bashrc commit -m "$commit_name" || return
-  git -C ~/.cache/bashrc push
+  git -C ~/.cache/bashrc push 'git@github.com:ThomasBaruzier/bashrc.git' HEAD:main
 
   if [ "$?" = 0 ]; then
     success 'The bashrc has been pushed!'
@@ -283,7 +292,6 @@ pbrc() {
     error 'Failed to push ~/.bashrc'
   fi
 
-  rm -rf ~/.cache/bashrc
   echo
 }
 
@@ -292,7 +300,7 @@ uconf() {
   echo
   mkdir -p ~/.config/bashrc/
   if [ -d "$bashrc_home/.git" ]; then
-    git -C "$bashrc_home" pull || return
+    git -C "$bashrc_home" pull --ff-only || return
   else
     git -C "$bashrc_home" init || return
     git -C "$bashrc_home" remote add origin 'git@github.com:ThomasBaruzier/bashrc-private.git'
