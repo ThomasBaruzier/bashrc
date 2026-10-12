@@ -2,7 +2,7 @@
 
 ### ⚠️ WARNING ⚠️
 
-#### This bashrc is opinionated and not made for a wide audience. While it provides a handful of powerful utilities, it is highly recommended to read this document fully before use, especially the [Summary of dangerous features](#summary-of-dangerous-features) section. As an example, I use `rf` for `sudo rm -rf --`, so please be careful. I do not provide any warranty for any damage this program may cause.
+#### This bashrc is opinionated and not made for a wide audience. While it provides a handful of powerful utilities, it is highly recommended to read this document fully before use, especially the [Summary of dangerous features](#summary-of-dangerous-features) section. As an example, `rf` can run `sudo rm -rf --`, so please be careful. I do not provide any warranty for any damage this program may cause.
 
 ## Sections
 
@@ -20,131 +20,137 @@
 
 ## Installation
 
-To install this bashrc, I highly recommend to first back up your existing configuration. You can do this by running `mv ~/.bashrc ~/.bashrc.bak`.
+This bashrc is intended for Bash on GNU/Linux and Android with Termux.
 
-After backing up your old file, copy the new `.bashrc` from this cloned repository into your home directory. For the changes to take effect, you will need to reload your shell. You can either open a new terminal or run the command `source ~/.bashrc` in your current session.
+To install this bashrc, I highly recommend backing up your existing configuration first. You can do this by running `mv ~/.bashrc ~/.bashrc.bak`.
+
+After backing up your old file, copy the new `.bashrc` from this cloned repository to `~/.bashrc`. For the changes to take effect, open a new terminal or run `source ~/.bashrc` in your current session.
 
 ## Configuration
 
 This bashrc is designed to be customized without modifying the main `.bashrc` file, which makes it easier to update in the future.
 
-Your personal aliases, functions, and settings should be placed in the `~/.config/bashrc/` directory. Any file ending with a `.sh` extension inside this directory will be automatically loaded when you start a new shell. For example, you can move your existing custom aliases into a new file like `~/.config/bashrc/aliases.sh`.
+Your personal aliases, functions, and settings should be placed in the `~/.config/bashrc/` directory. Any file ending with a `.sh` extension inside this directory, including subdirectories, will be automatically loaded when you start a new interactive shell. For example, you can place custom aliases in `~/.config/bashrc/aliases.sh`. These files load before the main aliases and functions, so matching definitions later in `.bashrc` take precedence.
 
-For environment variables that should be available to all programs, the standard practice is to define them in `~/.profile`, which is loaded once at login.
+For environment variables that should be available outside interactive shells, use your login configuration, such as `~/.profile`.
 
 On its first run, the bashrc will automatically create a configuration file at `~/.config/bashrc/config.sh` if it does not already exist. This file contains several key variables:
 
-* `skip_deps_check`: Set this to `true` to disable the automatic dependency check that runs when the shell starts.
-* `remote_server`: Defines the server address for the `push` and `pull` commands. The format should be `user@hostname` or `user@hostname:port`.
-* `remote_destination`: Specifies the absolute path on the remote server where files transferred with the `push` command will be stored.
+* `skip_deps_check`: Set this to `false` to enable startup checks for common dependencies. Defaults to `true`.
+* `remote_server`: Defines the server address for the `push` and `pull` commands. The format must include a port, such as `user@hostname:22`.
+* `remote_destination`: Specifies an existing directory on the remote server where uploaded files will be stored.
+
+You can also set `ps1_color`, `ps1_color_error`, `ps1_color_root`, and `ps1_color_root_error` to customize the prompt's ANSI color codes. Run `rel` after editing configuration files.
+
+The shell uses `umask 077`, so newly created files and directories are private to your user by default. Command history is stored in `~/.history` and appended after each command.
 
 ## Summary of dangerous features
 
-Here is a non exhaustive list of features you may want to be aware of before anything tragic happens.
+Here is a non-exhaustive list of features you may want to be aware of before anything tragic happens.
 
-* `rf <path>`: This is an alias for `sudo rm -rf --`. It will forcefully and recursively delete files and directories with root privileges.
+* `rf <path>`: This forcefully and recursively deletes files and directories, using `sudo` when automatic sudo is enabled.
 * `clean`: This script deletes numerous files and directories from your system, including package manager caches and temporary files. It could potentially remove data you intended to keep.
-* `adbsync <folder>`: This command synchronizes a local folder from an android device. It will delete any files in the local destination directory that do not exist on the source device.
-* `own [path...]`: This command uses `sudo` to change the ownership of files. Running this on system directories will likely break your system.
+* `adbsync <folder>`: This command synchronizes a local folder from an Android device. It will delete any files in the local destination directory that do not exist on the source device.
+* `own [path...]`: This command recursively changes ownership, using `sudo` when available. Running this on system directories will likely break your system.
 * `ren <pattern> <replacement> -r`: This batch rename command, especially with the recursive `-r` flag, can incorrectly rename thousands of files if the pattern is poorly constructed. It can also overwrite data if multiple files are renamed to have the same filename.
-* `g`: This interactive git helper has destructive options. The `d` option deletes the last commit, and the `P` option force-pushes.
-* Automatic `sudo`: Many system management commands like `pacman`, `apt`, and `mount` are automatically prefixed with `sudo`.
+* `g`: This interactive git helper has destructive options. The `d` option resets hard to the previous commit, and the `P` option force-pushes.
+* Automatic `sudo`: Many system management commands like `pacman`, `apt`, `mount`, and `passwd` can be automatically prefixed with `sudo`.
 * `reboot` and `shutdown`: These aliases immediately restart or shut down the system. Unsaved work could be lost.
 
 ## Basic utilities
 
-This table lists simple aliases for common, everyday commands.
+This table lists simple aliases and functions for common, everyday commands.
 
-| Alias | Description |
+| Command | Description |
 | --- | --- |
-| `..`, `...`, etc. | Navigates up the directory tree, up to nine levels. |
+| `..`, `...`, etc. | Navigates up the directory tree, up to eight levels. |
 | `c` | Clears the terminal screen. |
 | `n` | Opens the nano text editor. |
 | `rel` | Reloads the `~/.bashrc` file in the current shell. |
 | `brc` | Opens `~/.bashrc` in nano and reloads it upon closing. |
 | `ca <expression>` | A command-line calculator. Example: `ca 10 / 3`. |
-| `ascii` | Prints a reference table of ASCII characters. |
+| `clip` | Copies piped input to the clipboard using OSC 52, if supported by the terminal. |
 
 ## File and directory management
 
-These are tools for creating, deleting, viewing, and modifying files and directories. This section covers simple aliases in a table, followed by more detailed explanations of advanced utilities.
+These are tools for creating, deleting, viewing, and modifying files and directories. This section covers simple shortcuts in a table, followed by batch renaming.
 
-| Alias | Description |
+| Command | Description |
 | --- | --- |
-| `ls`, `l`, `sl` | A customized `ls` that sorts by time with directories first. |
-| `la` | Lists all files, including hidden ones. |
-| `ll` | Provides a long listing format for all files. |
+| `ls`, `l`, `sl` | Lists files by extension, with directories first and automatic colors. |
+| `la` | Lists files, including hidden ones, except `.` and `..`. |
+| `ll` | Provides a long listing format, including hidden files. |
 | `md <name>` | Creates a new directory. |
 | `mp <path>` | Creates a directory and any necessary parent directories. |
-| `rf <path>` | Forcefully and recursively deletes files with `sudo` (be careful!).  |
-| `rd <path>` | Deletes empty directories with `sudo`. |
-| `pwd [path]` | Prints the full, absolute path of a file or directory. |
-| `sz [path...]` | Displays the total size of specified files or directories. |
-| `own [path...]` | Changes the ownership of files to the current user. |
-| `w [file...]` | Makes files executable. `w all` targets all files. |
+| `rf <path>` | Forcefully and recursively deletes files and directories, using automatic `sudo`. |
+| `rd <path>` | Deletes files or empty directories, using automatic `sudo`. |
+| `pwd [path]` | Resolves a file or directory to an absolute path, following symlinks. Defaults to the current directory. |
+| `sz [path...]` | Displays apparent sizes of files and directories. |
+| `own [path...]` | Recursively changes ownership to the current user and same-named group. Defaults to the current directory. |
+| `w [file...]` | Makes files executable. Defaults to `*.sh` and `*.exe`; `w all` targets all non-hidden entries. |
 | `catw <file>` | Displays file content, word-wrapped to the terminal width. |
-
-### Intelligent runner: r (deprecated)
-
-The `r [file]` command is a shortcut to execute files.
-
-When run without an argument, it re-runs the last file that was executed. If a file path is provided, it runs that new file and remembers it for the next time `r` is called. The command uses an intelligent helper that automatically determines how to handle the file. It can run shell and python scripts, compile and run C files, execute binaries, and extract a wide variety of archive formats.
 
 ### Batch renaming: ren
 
-The `ren <pattern> <replacement> [-r]` command is a powerful utility for renaming multiple files at once.
+The `ren <pattern> <replacement> [-r]` command is a powerful utility for renaming multiple files and directories at once.
 
-It uses `sed` for pattern matching, allowing you to use regular expressions to find and replace parts of filenames. The `-r` flag enables recursive operation, applying the renaming logic to all files in all subdirectories.
+It uses extended regular expressions through `sed` to replace text in paths. By default, it scans the current directory, excluding hidden paths. The `-r` flag includes subdirectories.
 
 ## System and package management
 
 These commands are for system administration, monitoring, and maintenance.
 
-Many common administrative commands such as `pacman`, `apt`, `mount`, `useradd`, and `gparted` are automatically prefixed with `sudo` to simplify system management.
+Outside Android, selected commands use `sudo` automatically when it is installed and the current user is non-root and belongs to the `sudo` or `wheel` group. These include `pacman`, `apt`, `dnf`, `docker`, `mount`, `useradd`, and `gparted`.
 
 | Command | Description |
 | --- | --- |
 | `reboot` | Reboots the system and exits the current shell. |
 | `shutdown` | Shuts down the system immediately and exits the shell. |
-| `disk` | Displays a summary of disk space usage. |
+| `disk` | Shows usage and free space for ext4 and btrfs filesystems, or `/sdcard` on Android. |
 
 ### System cleaning: clean
 
-The `clean` command is an opinionated script that frees up disk space. I highly recommend you to look what files it is about to delete before using this feature, some of them may be important to you. It performs several actions, including removing temporary files, clearing package manager caches for `pacman`, `apt`, `yay`, and `flatpak`, uninstalling orphaned packages, and vacuuming systemd journal logs to a smaller size.
+The `clean` command removes caches, temporary files, selected logs and histories, empties Trash, removes unused packages, and vacuums the systemd journal. I highly recommend previewing its selections with `clean -n` before using it.
+
+A JSON configuration is required. Set `clean_config='{}'` in `~/.config/bashrc/config.sh` and run `rel` for public rules only. The script requires Python 3.8+ on Linux and downloads automatically if missing.
+
+Use `-v` for details, `-d` to also prune unused Docker data without volumes, and `-p` to remove generated artifacts from inactive projects in configured locations. `--age DAYS` overrides age-controlled thresholds except journald; unconditional cleanup is unchanged. See `clean --help` for all options.
 
 ### Smart package installer: i
 
-The `i [package...]` function is a smart package installer that acts as a wrapper for `pacman` and `apt`. Its main feature is its ability to suggest correctly named packages if a given package name is not found. For example, on an Arch-based system, `i rg` will suggest installing the `ripgrep` package. If run without any arguments, it updates all system packages.
+The `i [package...]` function is a smart package installer that acts as a wrapper for `pacman` and `apt`. It can suggest correctly named packages if a given package name is not found. For example, on an Arch-based system, `i rg` can suggest installing the `ripgrep` package.
+
+Run without arguments to update packages using `yay`, `pacman`, or `apt`. `i -f` or `i --force` automatically answers yes to update prompts. On pacman systems, `_syncdb` refreshes the command-to-package lookup database.
 
 ## Git and development
 
-These are tools to assist with version control, compiling, debugging, and general coding tasks.
+These are tools to assist with version control and general coding tasks.
 
 | Alias | Description |
 | --- | --- |
 | `cdiff`, `wdiff`, `ldiff` | Compare two files using git's diff engine (character, word, or line). |
-| `mk` | A build shortcut that runs `make fclean`, `make -j`, and `make clean`. |
-| `b` | Builds a project with `mk` and then runs the first binary it finds. |
-| `val` | Builds with `mk` and runs the first binary under `valgrind`. |
-| `snm [binary...]` | Shows dynamic library dependencies for one or more executables. |
-| `cts` | An alias to a `sed` command that removes trailing whitespace from files. |
-| `venv` | A shortcut for `source .venv/bin/activate` to activate a python venv. |
+| `cts` | Removes trailing whitespace from files in place using `sed`. |
+| `venv` | A shortcut for `source .venv/bin/activate` to activate a Python virtual environment. |
 
 ### Git clone wrapper: clone
 
-The `clone <url | user repo> [options]` command is a wrapper for `git clone` that defaults to a shallow clone (`--depth 1`) for faster downloads. It supports a simplified syntax for GitHub repositories, such as `clone user repo`. If the destination directory already exists, it will attempt to run `git pull` to get updates instead of failing.
+The `clone` command accepts an HTTP(S) URL, a `git@host:path` SSH URL, `user repo`, `user/repo`, or an existing local repository path. GitHub shortcuts use SSH. Clones default to `--depth 1`; an optional destination can follow a URL or GitHub source.
+
+If the destination or supplied local directory already exists, it attempts `git pull`. For new clones, use `-d`/`--depth` (`0` for full history), `-b`/`--branch`, or `-c`/`--commit` (uses full history). `clone --help` shows the syntax.
 
 ### Interactive git helper: g (deprecated)
 
-The `g` command launches an interactive, menu-driven helper for performing the most common git operations. It provides a simple text-based interface for initializing a repository, committing changes, pushing, pulling, amending commits, and more, which is useful when you don't want to remember the specific git commands.
+The `g` command launches an interactive, menu-driven helper for common git operations. It provides a simple text-based interface for initializing a repository, committing changes, pushing, pulling, amending commits, and more. Push and pull actions target `origin main`.
+
+In an existing repository, an empty menu choice commits changes and pushes. You can also pass choices directly, such as `g cp` to commit and push.
 
 ### LLM context helpers: file2prompt and prompt2file
 
 These two utilities are designed to streamline interaction with large language models (LLMs).
 
-* `file2prompt` or `f2p`: This command scans specified paths for text-based files, concatenates their contents into a single formatted block, and copies the result to the clipboard. This makes it easy to provide code and other context to an LLM.
+* `file2prompt [path...]` or `f2p`: Collects text files into named code blocks using a fixed exclusion list, not `.gitignore`. It defaults to the current directory. The result is copied when a supported clipboard tool is available and output is a terminal; otherwise it is printed. It attempts to mask secret-like values by default; `--no-hash` or `-nh` disables this.
 
-* `prompt2file` or `p2f`: This is the inverse of `file2prompt`. It parses a text file (such as a response from an LLM) that contains code blocks with filenames, and it automatically creates the specified files and directory structures on your filesystem.
+* `prompt2file [file]` or `p2f`: Parses named code blocks from a text file and writes to their specified paths, creating missing parent directories for relative paths and prompting before overwriting existing files. With no input file, it opens `$EDITOR` for you to enter the text.
 
 ## Networking and file transfer
 
@@ -152,16 +158,16 @@ These utilities are for inspecting network information and transferring files to
 
 | Command | Description |
 | --- | --- |
-| `myip` | Displays your local private IP address and your public IP address. |
-| `ports` | Lists all currently listening network ports on the system. |
+| `myip` | Displays local IPv4 addresses and the public IPv4 address. |
+| `ports` | Shows listening ports and processes, highlighting non-private bindings in red. |
 
 ### Remote file transfer: push and pull
 
 These functions enable simple file transfers between your local machine and a remote server. They require the `remote_server` and `remote_destination` variables to be set in your bashrc configuration.
 
-* `push <file/dir...>`: This command transfers one or more files or directories to the pre-configured remote server using `scp`. It can also accept piped input, allowing you to send the output of another command directly to a remote file.
+* `push <file/dir...>`: Transfers files or directories to the configured remote server using `scp` and records their names for `pull`. It can also accept piped input, which is uploaded as `pipe.txt`.
 
-* `pull [destination]`: This command downloads the most recent set of files that were uploaded using the `push` command. Files are saved to the specified local destination directory, or to the current directory by default.
+* `pull [destination]`: Downloads the most recent set of uploaded files. The default destination is `/sdcard/Download/` when that directory exists, otherwise the current directory. Piped uploads are printed to standard output instead.
 
 ## Session and media
 
@@ -171,34 +177,38 @@ This section covers utilities for managing terminal sessions and media files.
 
 The `s` command provides an interactive menu that lists all running `screen` sessions. It simplifies re-attaching to both attached and detached sessions by allowing you to select one from a numbered list, avoiding the need to manually type `screen -rd <pid>`.
 
-### Media and torrent utilities
+### Media utilities
 
 | Command | Description |
 | --- | --- |
-| `addtrackers <magnet>` | Appends an up-to-date list of public trackers to a torrent magnet link. |
-| `streaminfo <file>` | Displays technical information about the streams in a media file. |
-| `burnsubs <video> <subs>` | A wrapper for `ffmpeg` that embeds a subtitle file into a video file. |
+| `streaminfo <file>` | Displays technical information about the streams in a media file using `ffprobe`. |
+| `burnsubs [options] <video> <subs> [output]` | Adds a selectable subtitle track using `ffmpeg`, without re-encoding video or audio. |
+
+For `burnsubs`, the two input files can be given in either order; the file using less disk space is treated as subtitles. `-r` replaces existing subtitle tracks. `-l` and `-n` set the language and name of the first output subtitle track. Without an output path, it writes `<name>-subbed.<ext>` in the current directory.
 
 ## Android ADB utilities
 
-These functions are designed to work with an android device connected via the android debug bridge (ADB).
+These functions are designed to work with an Android device connected via the Android Debug Bridge (ADB).
 
 ### Folder synchronization: adbsync
 
-The `adbsync <folder>` command performs an efficient, one-way synchronization from an android device's `/sdcard/` directory to a local folder. It pulls any new or modified files from the device and deletes any local files that no longer exist on the device, keeping the local folder an exact mirror of the source.
+The `adbsync <folder> [jobs]` command performs one-way synchronization from an Android device's `/sdcard/` directory to a local folder. It pulls files missing locally and deletes local files absent from the device. Existing local files are not checked for changes; use `adbcheck` to verify them.
+
+The destination must be a relative path. The optional `jobs` argument controls parallel transfers and defaults to 4.
 
 ### File integrity check: adbcheck
 
-The `adbcheck <folder>` command verifies the integrity of files in a local folder against their counterparts on a connected android device. It compares the md5 hashes of each file and automatically re-downloads any files from the device that are mismatched or corrupted, ensuring the local copy is not damaged.
+The `adbcheck <folder>` command compares MD5 hashes of existing local files against their counterparts on a connected Android device. It deletes mismatched local files before attempting to download replacements. Use `adbsync` to fetch files missing locally.
 
 ## Bashrc synchronization
 
-These functions manage the bashrc and its configuration by synchronizing them with a git repository.
+These functions synchronize public files with `ThomasBaruzier/bashrc` and private configuration with `ThomasBaruzier/bashrc-private` on GitHub over SSH.
 
 | Command | Description |
 | --- | --- |
-| `ubrc` | Updates the local `~/.bashrc` by pulling from its git repository. |
-| `pbrc` | Pushes the local `~/.bashrc` to its git repository. |
-| `uconf` | Updates the private bashrc configuration from its own repository. |
-| `pconf` | Pushes the private bashrc configuration to its repository. |
-| `u` | A shortcut that runs both `ubrc` and `uconf` to update everything. |
+| `ubrc` | Overwrites `~/.bashrc` and `~/.config/bashrc/clean.py` with public repository versions. |
+| `pbrc` | Commits and pushes the public bashrc files. |
+| `uconf` | Updates private configuration in `~/.config/bashrc/`. |
+| `pconf` | Commits and pushes top-level `.sh` files in `~/.config/bashrc/`. |
+
+Run `rel` after updating to load the changes into the current shell.
