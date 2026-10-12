@@ -315,6 +315,9 @@ uconf() {
     git -C "$bashrc_home" checkout -b main --track origin/main || return
   fi
 
+  printf '%s\n' '/*' '!/firefox.7z' |
+    git -C "$bashrc_home" sparse-checkout set --no-cone --stdin || return
+
   if [ "$?" = 0 ]; then
     success 'Private bashrc config has been updated!'
   else
