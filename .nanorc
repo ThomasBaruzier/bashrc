@@ -42,7 +42,6 @@ include /usr/share/nano/changelog.nanorc
 include /usr/share/nano/default.nanorc
 include /usr/share/nano/python.nanorc
 include /usr/share/nano/perl.nanorc
-include /usr/share/nano/elisp.nanorc
 include /usr/share/nano/makefile.nanorc
 include /usr/share/nano/css.nanorc
 include /usr/share/nano/sql.nanorc
