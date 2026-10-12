@@ -333,7 +333,7 @@ pconf() {
 
   mkdir -p ~/.config/bashrc/
   clone 'git@github.com:ThomasBaruzier/bashrc-private.git' ~/.config/bashrc/
-  git -C ~/.config/bashrc add ~/.config/bashrc/*.sh
+  git -C "$bashrc_home" add -u -- .
   git -C ~/.config/bashrc commit -m "$commit_name"
   git -C ~/.config/bashrc push
 
