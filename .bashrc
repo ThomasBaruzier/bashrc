@@ -145,7 +145,14 @@ alias gparted="$sudo gparted"
 # basic functions
 ca() { bc <<< "scale=5;$*"; }
 catw() { cat "$1" | fold -sw "$COLUMNS"; }
-clip() { printf '\033]52;c;%s\a' "$(base64 | tr -d '\r\n')" > /dev/tty; }
+clip() {
+  local data=$(base64 | tr -d '\r\n')
+  if [[ -n $STY && -z $TMUX ]]; then
+    printf '\033P\033]52;c;%s\a\033\\' "$data" > /dev/tty
+  else
+    printf '\033]52;c;%s\a' "$data" > /dev/tty
+  fi
+}
 
 ## ENVIRONMENT
 
