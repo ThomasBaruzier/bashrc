@@ -1392,7 +1392,7 @@ def resolve_paths():
     for root in cache_roots
     for name in ("docker", "buildx", "buildkit", "containers")
   ] + [
-    docker_config, home + "/.docker", data + "/nano",
+    docker_config, home + "/.docker", home + "/.cache/bashrc", data + "/nano",
     home + "/.Xauthority", home + "/.ICEauthority", home + "/.pulse-cookie"
   ] + private_preserve
   if gobin:
@@ -2744,6 +2744,13 @@ def docker():
     return
   if not stat.S_ISSOCK(socket_info.st_mode):
     failure("DOCKER", endpoint, "endpoint is not a Unix socket", "metadata")
+    return
+
+  if os.path.realpath(socket_path) != "/run/docker.sock" or not available("systemctl"):
+    log("DOCKER", "SKIP", endpoint, "daemon readiness cannot be checked without activation")
+    return
+  if query(["systemctl", "is-active", "--quiet", "docker.service"]).returncode:
+    log("DOCKER", "SKIP", endpoint, "daemon inactive; not activating it")
     return
 
   command = priv + [
